@@ -11,7 +11,6 @@ SUPABASE_BUCKET = os.getenv("SUPABASE_BUCKET", "videos")
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-
 @app.get("/")
 def read_root():
     return {"message": "Hello from Counseling AI Backend!"}
@@ -24,8 +23,9 @@ async def upload_file(file: UploadFile = File(...)):
         file_path = f"{file.filename}"
 
         res = supabase.storage.from_(SUPABASE_BUCKET).upload(
-            file_path, contents, {"upsert": True}
+            file_path, contents, upsert=True
         )
+
 
         return {"message": "Upload successful", "filename": file.filename, "result": res}
     except Exception as e:
