@@ -15,6 +15,7 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 def read_root():
     return {"message": "Hello from Counseling AI Backend!"}
 
+from io import BytesIO
 
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
@@ -22,11 +23,13 @@ async def upload_file(file: UploadFile = File(...)):
         contents = await file.read()
         file_path = f"{file.filename}"
 
+        # BytesIO でラップする
         res = supabase.storage.from_(SUPABASE_BUCKET).upload(
             path=file_path,
-            file=contents
+            file=BytesIO(contents)
         )
 
         return {"message": "Upload successful", "filename": file.filename, "result": res}
     except Exception as e:
         return {"error": str(e)}
+
