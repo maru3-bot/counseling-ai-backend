@@ -1,7 +1,9 @@
+# requirements.txt
 fastapi==0.112.2
 uvicorn==0.30.1
-httpx==0.24.1   # ★ supabase 2.3.0 と相性が良い安定版
+httpx==0.27.0         # supabase 最新に対応
 pydantic==2.8.2
 python-dotenv==1.0.1
 python-multipart==0.0.9
-supabase==2.3.0
+supabase==2.4.5       # ★ 最新安定版に変更
+
