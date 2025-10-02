@@ -1,7 +1,6 @@
 from fastapi import FastAPI, File, UploadFile
 from supabase import create_client
 import os
-import tempfile
 
 app = FastAPI()
 
@@ -19,19 +18,15 @@ def read_root():
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
     try:
-        # 一時ファイルに保存
-        with tempfile.NamedTemporaryFile(delete=False) as tmp:
-            tmp.write(await file.read())
-            tmp_path = tmp.name
+        # バイト列を取得
+        contents = await file.read()
 
-        # Supabase にアップロード（ここはファイルパスを渡す必要あり）
+        # Supabase にアップロード（bytes をそのまま渡す）
         res = supabase.storage.from_(SUPABASE_BUCKET).upload(
             path=file.filename,
-            file=tmp_path  # ← bytes ではなくファイルパスを渡す
+            file=contents
         )
 
         return {"message": "Upload successful", "filename": file.filename, "result": res}
     except Exception as e:
         return {"error": str(e)}
-
-
