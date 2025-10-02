@@ -23,9 +23,9 @@ async def upload_file(file: UploadFile = File(...)):
         file_path = f"{file.filename}"
 
         res = supabase.storage.from_(SUPABASE_BUCKET).upload(
-            file_path, contents, upsert=True
+            path=file_path,
+            file=contents
         )
-
 
         return {"message": "Upload successful", "filename": file.filename, "result": res}
     except Exception as e:
