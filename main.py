@@ -1,7 +1,7 @@
 from fastapi import FastAPI, File, UploadFile
 from supabase import create_client
 import os
-import uuid
+import datetime
 
 app = FastAPI()
 
@@ -20,8 +20,9 @@ def read_root():
 async def upload_file(file: UploadFile = File(...)):
     try:
         contents = await file.read()
-        # UUID + 元のファイル名 で一意化
-        unique_name = f"{uuid.uuid4()}_{file.filename}"
+        # 日付 + 時間 + 元のファイル名
+        timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        unique_name = f"{timestamp}_{file.filename}"
 
         res = supabase.storage.from_(SUPABASE_BUCKET).upload(
             path=unique_name,
