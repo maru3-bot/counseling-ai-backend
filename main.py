@@ -1,7 +1,15 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, UploadFile, File
+import shutil
+import os
 
 app = FastAPI()
 
-@app.get("/")
-def read_root():
-    return {"message": "Hello from Counseling AI Backend!"}
+UPLOAD_DIR = "uploads"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+@app.post("/upload")
+async def upload_file(file: UploadFile = File(...)):
+    file_path = os.path.join(UPLOAD_DIR, file.filename)
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+    return {"filename": file.filename, "status": "uploaded"}
