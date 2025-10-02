@@ -1,7 +1,7 @@
 fastapi==0.112.2
 uvicorn==0.30.1
-httpx==0.25.2   # supabase と互換性あり
+httpx==0.25.2   # supabase がサポートしている httpx バージョン
 pydantic==2.8.2
 python-dotenv==1.0.1
 python-multipart==0.0.9
-supabase==2.4.0
+supabase==2.3.0   # 2.4.0では不具合があるので一旦安定版
