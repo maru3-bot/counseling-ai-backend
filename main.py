@@ -4,4 +4,4 @@ app = FastAPI()
 
 @app.get("/")
 def read_root():
-    return {"message": "Hello from Counseling AI Backend on Render!"}
+    return {"message": "Hello from Counseling AI Backend!"}
