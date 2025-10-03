@@ -1,7 +1,7 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from supabase import create_client
-import os, datetime
+import os
 
 # --- 環境変数から取得 ---
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -21,10 +21,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 @app.get("/list")
-def list_all_files():
+def list_files():
     """
-    Supabase バケット内の全動画一覧を返す
+    Supabase バケット内のファイル一覧を返す
     """
     try:
         files = supabase.storage.from_(SUPABASE_BUCKET).list()
@@ -40,11 +41,8 @@ async def upload_file(file: UploadFile = File(...)):
     """
     try:
         content = await file.read()
-        timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        stored_name = f"{timestamp}_{file.filename}"
-
-        supabase.storage.from_(SUPABASE_BUCKET).upload(stored_name, content)
-        return {"message": "アップロード成功", "filename": stored_name}
+        supabase.storage.from_(SUPABASE_BUCKET).upload(file.filename, content)
+        return {"message": "アップロード成功", "filename": file.filename}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -63,5 +61,17 @@ def get_signed_url(filename: str):
             return {"url": signed_url["signedURL"]}
         else:
             return {"url": signed_url}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/delete/{filename}")
+def delete_file(filename: str):
+    """
+    Supabase Storage から指定ファイルを削除
+    """
+    try:
+        res = supabase.storage.from_(SUPABASE_BUCKET).remove([filename])
+        return {"message": f"{filename} を削除しました", "result": res}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

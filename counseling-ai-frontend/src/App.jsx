@@ -1,49 +1,35 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
 
+const API_BASE = "https://counseling-ai-backend.onrender.com";
+
 function App() {
   const [videos, setVideos] = useState([]);
   const [videoUrls, setVideoUrls] = useState({});
-  const [uploadProgress, setUploadProgress] = useState(0); // 追加
-  const [message, setMessage] = useState(""); // 成功/失敗メッセージ
 
+  // アップロード済みファイル一覧を取得
   useEffect(() => {
     fetchVideos();
   }, []);
 
-  const fetchVideos = () => {
-    axios.get("https://counseling-ai-backend.onrender.com/list")
-      .then(res => setVideos(res.data.files))
-      .catch(err => console.error(err));
+  const fetchVideos = async () => {
+    try {
+      const res = await axios.get(`${API_BASE}/list`);
+      // 新しい順にソート
+      const sorted = res.data.files.sort(
+        (a, b) => new Date(b.updated_at) - new Date(a.updated_at)
+      );
+      setVideos(sorted);
+    } catch (err) {
+      console.error(err);
+    }
   };
 
-  const handleFileChange = async (event) => {
-  const file = event.target.files[0];
-  if (!file) return;
-
-  const formData = new FormData();
-  formData.append("file", file);
-
-  try {
-    await axios.post(
-      `https://counseling-ai-backend.onrender.com/upload/staffA`, // ← staff名を指定
-      formData,
-      { headers: { "Content-Type": "multipart/form-data" } }
-    );
-
-    fetchVideos();
-  } catch (err) {
-    console.error("アップロード失敗:", err);
-  }
-};
-
-
+  // 再生ボタンを押したときに署名付きURLを取得
   const handlePlay = async (filename) => {
     try {
-      const res = await axios.get(
-        `https://counseling-ai-backend.onrender.com/signed-url/${filename}`
-      );
-      setVideoUrls(prev => ({
+      const res = await axios.get(`${API_BASE}/signed-url/${filename}`);
+      setVideoUrls((prev) => ({
         ...prev,
         [filename]: res.data.url,
       }));
@@ -52,36 +38,41 @@ function App() {
     }
   };
 
+  // 削除ボタンを押したとき
+  const handleDelete = async (filename) => {
+    if (!window.confirm(`${filename} を削除してもよろしいですか？`)) return;
+
+    try {
+      await axios.delete(`${API_BASE}/delete/${filename}`);
+      setVideos((prev) => prev.filter((v) => v.name !== filename));
+    } catch (err) {
+      console.error("削除エラー:", err);
+      alert("削除に失敗しました");
+    }
+  };
+
   return (
     <div style={{ padding: "20px" }}>
       <h1>アップロード動画一覧</h1>
+      {videos.map((v) => (
+        <div key={v.id || v.name} style={{ marginBottom: "20px" }}>
+          <p>{v.name}</p>
 
-      {/* ファイル選択 */}
-      <input type="file" accept="video/*" onChange={handleFileChange} />
-
-      {/* プログレスバー */}
-      {uploadProgress > 0 && uploadProgress < 100 && (
-        <div style={{ marginTop: "10px" }}>
-          アップロード中... {uploadProgress}%
-          <progress value={uploadProgress} max="100" />
-        </div>
-      )}
-
-      {/* 成功/失敗メッセージ */}
-      {message && <p>{message}</p>}
-
-      {/* 動画一覧 */}
-      {videos.map((v, i) => (
-        <div key={i} style={{ marginBottom: "20px" }}>
-          <p>{v.name} （{Math.round(v.metadata.size / 1024)} KB, {v.created_at}）</p>
           <video
             width="320"
             height="240"
             controls
-            src={videoUrls[v.name] || ""}
+            src={videoUrls[v.name] || null}
           />
+
           <br />
           <button onClick={() => handlePlay(v.name)}>▶ 再生する</button>
+          <button
+            onClick={() => handleDelete(v.name)}
+            style={{ marginLeft: "10px", color: "red" }}
+          >
+            🗑 削除
+          </button>
         </div>
       ))}
     </div>
