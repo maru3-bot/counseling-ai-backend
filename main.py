@@ -1,7 +1,8 @@
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, UploadFile, Query
+from fastapi.responses import JSONResponse
 from supabase import create_client
 import os
-from datetime import datetime, timezone  # ← 修正ポイント
+from datetime import datetime, timezone
 
 app = FastAPI()
 
