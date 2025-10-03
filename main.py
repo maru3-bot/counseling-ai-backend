@@ -1,10 +1,11 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from supabase import create_client
 import os
 
+# --- 環境変数 ---
 SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")  # Service Role Key 推奨
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")  # Service Role Key
 SUPABASE_BUCKET = os.getenv("SUPABASE_BUCKET", "videos")
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -13,37 +14,34 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # 本番ではフロントのURLを追加
+    allow_origins=["http://localhost:5173"],  # フロントのURL
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ✅ ファイル一覧を返すエンドポイント
-@app.get("/list")
-def list_files():
+
+@app.post("/upload")
+async def upload_file(file: UploadFile = File(...)):
+    """
+    Supabase Storage に動画ファイルをアップロード
+    """
     try:
-        res = supabase.storage.from_(SUPABASE_BUCKET).list()
-        files = [{"filename": f["name"]} for f in res]
-        return {"files": files}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        # ファイル名（ユニーク化する）
+        filename = file.filename
+        file_bytes = await file.read()
 
+        # Supabase に保存
+        res = supabase.storage.from_(SUPABASE_BUCKET).upload(
+            path=filename,
+            file=file_bytes,
+            file_options={"content-type": file.content_type},
+        )
 
-# ✅ 署名付きURLを返すエンドポイント
-@app.get("/signed-url/{filename}")
-def get_signed_url(filename: str):
-    try:
-        expires_in = 60 * 60 * 24 * 365  # 1年
-        signed_url = supabase.storage.from_(SUPABASE_BUCKET).create_signed_url(filename, expires_in)
+        if res.get("error"):
+            raise HTTPException(status_code=400, detail=res["error"]["message"])
 
-        if not signed_url:
-            raise HTTPException(status_code=400, detail="署名付きURLの生成に失敗しました")
-
-        if isinstance(signed_url, dict) and "signedURL" in signed_url:
-            return {"url": signed_url["signedURL"]}
-        else:
-            return {"url": signed_url}
+        return {"message": "アップロード成功", "filename": filename}
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

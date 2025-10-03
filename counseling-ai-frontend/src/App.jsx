@@ -3,31 +3,48 @@ import axios from "axios";
 
 function App() {
   const [videos, setVideos] = useState([]);
-  const [videoUrls, setVideoUrls] = useState({}); // ファイルごとの署名付きURLを保存
+  const [videoUrls, setVideoUrls] = useState({});
+  const [selectedFile, setSelectedFile] = useState(null);
 
-  // アップロード済みファイル一覧を取得
+  // 一覧取得
+  const fetchVideos = () => {
+    axios.get("https://counseling-ai-backend.onrender.com/list")
+      .then(res => setVideos(res.data.files))
+      .catch(err => console.error(err));
+  };
+
   useEffect(() => {
-    axios
-      .get("https://counseling-ai-backend.onrender.com/list")
-      .then((res) => {
-        // .emptyFolderPlaceholder を除外
-        const validFiles = res.data.files.filter(
-          (f) => !f.filename.includes("emptyFolderPlaceholder")
-        );
-        setVideos(validFiles);
-      })
-      .catch((err) => console.error(err));
+    fetchVideos();
   }, []);
 
-  // 再生ボタンを押したときに署名付きURLを取得
+  // アップロード処理
+  const handleUpload = async () => {
+    if (!selectedFile) return alert("ファイルを選択してください");
+
+    const formData = new FormData();
+    formData.append("file", selectedFile);
+
+    try {
+      await axios.post("https://counseling-ai-backend.onrender.com/upload", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      alert("アップロード成功！");
+      fetchVideos(); // 一覧を更新
+    } catch (err) {
+      console.error(err);
+      alert("アップロード失敗");
+    }
+  };
+
+  // 再生ボタンを押したとき署名付きURL取得
   const handlePlay = async (filename) => {
     try {
       const res = await axios.get(
         `https://counseling-ai-backend.onrender.com/signed-url/${filename}`
       );
-      setVideoUrls((prev) => ({
+      setVideoUrls(prev => ({
         ...prev,
-        [filename]: res.data.url, // filenameごとに署名URLを保存
+        [filename]: res.data.url,
       }));
     } catch (err) {
       console.error("署名付きURLの取得エラー:", err);
@@ -37,6 +54,17 @@ function App() {
   return (
     <div style={{ padding: "20px" }}>
       <h1>アップロード動画一覧</h1>
+
+      {/* アップロードフォーム */}
+      <input
+        type="file"
+        accept="video/mp4"
+        onChange={(e) => setSelectedFile(e.target.files[0])}
+      />
+      <button onClick={handleUpload}>アップロード</button>
+
+      <hr />
+
       {videos.map((v) => (
         <div key={v.filename} style={{ marginBottom: "20px" }}>
           <p>{v.filename}</p>
