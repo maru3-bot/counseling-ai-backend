@@ -41,8 +41,8 @@ async def upload_file(file: UploadFile = File(...)):
         )
 
         # ✅ 公開URLを取得（署名付きではなく permanent public URL）
-        public_url = supabase.storage.from_(SUPABASE_BUCKET).get_public_url(stored_name)
-
+        public_url = supabase.storage.from_("videos").get_public_url(filename)
+    
         return {
             "message": "Upload successful",
             "filename": file.filename,
