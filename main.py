@@ -34,11 +34,10 @@ async def upload_file(file: UploadFile = File(...)):
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
         stored_name = f"{timestamp}_{file.filename}"
 
-        # ✅ Content-Type を指定
         res = supabase.storage.from_(SUPABASE_BUCKET).upload(
             path=stored_name,
             file=contents,
-            file_options={"content-type": file.content_type}  # ← ここを追加
+            file_options={"content-type": "video/mp4"} 
         )
 
         public_url = supabase.storage.from_(SUPABASE_BUCKET).get_public_url(stored_name)
