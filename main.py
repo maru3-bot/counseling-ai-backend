@@ -34,20 +34,20 @@ async def upload_file(file: UploadFile = File(...)):
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
         stored_name = f"{timestamp}_{file.filename}"
 
+        # ファイルを Supabase にアップロード
         res = supabase.storage.from_(SUPABASE_BUCKET).upload(
             path=stored_name,
             file=contents,
-            file_options={"content-type": "video/mp4"}  # ★必須！
-            )
+        )
 
-
+        # ✅ 公開URLを取得（署名付きではなく permanent public URL）
         public_url = supabase.storage.from_(SUPABASE_BUCKET).get_public_url(stored_name)
 
         return {
             "message": "Upload successful",
             "filename": file.filename,
             "stored_as": stored_name,
-            "public_url": public_url,
+            "public_url": public_url,  # これを返す
         }
     except Exception as e:
         return {"error": str(e)}
