@@ -21,7 +21,7 @@ async def upload_file(file: UploadFile = File(...)):
     try:
         contents = await file.read()
 
-        # 日付方式でファイル名を作成（UTC）
+        # 日付方式でファイル名を作成
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
         file_path = f"{timestamp}_{file.filename}"
 
@@ -31,12 +31,12 @@ async def upload_file(file: UploadFile = File(...)):
             file=contents
         )
 
+        # 結果を安全に返却
         return {
             "message": "Upload successful",
             "filename": file.filename,
             "stored_as": file_path,
-            "result": res
+            "upload_result": str(res)  # ← ここで文字列にする
         }
     except Exception as e:
         return {"error": str(e)}
-
