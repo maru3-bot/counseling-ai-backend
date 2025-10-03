@@ -116,8 +116,8 @@ function App() {
               height="160"
               controls
               src={videoUrls[v.name] || ""}
-              poster="https://via.placeholder.com/240x160.png?text=Video"
-              style={{ borderRadius: "8px", background: "#000" }}
+              poster="/zazalogo.png"
+              style={{ borderRadius: "8px", background: "#fff" }}
             />
 
             <br />
