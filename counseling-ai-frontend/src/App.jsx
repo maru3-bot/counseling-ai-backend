@@ -65,21 +65,24 @@ function App() {
 
       <hr />
 
-      {videos.map((v) => (
-        <div key={v.filename} style={{ marginBottom: "20px" }}>
-          <p>{v.filename}</p>
+  {videos.map((v) => (
+    <div key={v.id || v.name} style={{ marginBottom: "20px" }}>
+      <p>{v.name}</p>
 
-          <video
-            width="320"
-            height="240"
-            controls
-            src={videoUrls[v.filename] || ""}
-          />
+      <video
+        width="320"
+        height="240"
+        controls
+        src={videoUrls[v.name] || null}   // 空文字 "" ではなく null
+      />
 
-          <br />
-          <button onClick={() => handlePlay(v.filename)}>▶ 再生する</button>
-        </div>
-      ))}
+      <br />
+        <button onClick={() => handlePlay(v.name)}>
+        ▶ 再生する
+        </button>
+    </div>
+))}
+
     </div>
   );
 }

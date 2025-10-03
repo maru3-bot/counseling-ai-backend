@@ -2,6 +2,7 @@ from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from supabase import create_client
 import os
+from datetime import datetime
 
 # --- 環境変数から取得 ---
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -20,7 +21,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 
 @app.get("/list")
 def list_files():
@@ -41,12 +41,16 @@ async def upload_file(file: UploadFile = File(...)):
     """
     try:
         content = await file.read()
-        supabase.storage.from_(SUPABASE_BUCKET).upload(file.filename, content)
+        
+        # 拡張子を維持しつつ一意なファイル名を生成
+        ext = os.path.splitext(file.filename)[1]  # 例: ".mp4"
+        unique_name = datetime.now().strftime("%Y%m%d-%H%M%S") + "_" + file.filename
 
-        return {"message": "アップロード成功", "filename": file.filename}
+        supabase.storage.from_(SUPABASE_BUCKET).upload(unique_name, content)
+
+        return {"message": "アップロード成功", "filename": unique_name}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
 
 @app.get("/signed-url/{filename}")
 def get_signed_url(filename: str):
