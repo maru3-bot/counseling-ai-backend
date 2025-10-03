@@ -19,21 +19,23 @@ def read_root():
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
     try:
+        # ファイル読み込み
         contents = await file.read()
-        # 日付 + 時間 + 元のファイル名
-        timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        unique_name = f"{timestamp}_{file.filename}"
+        timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+        file_path = f"{timestamp}_{file.filename}"
 
+        # Supabase にアップロード
         res = supabase.storage.from_(SUPABASE_BUCKET).upload(
-            path=unique_name,
+            path=file_path,
             file=contents
         )
 
+        # レスポンスを dict に変換
         return {
             "message": "Upload successful",
-            "original_filename": file.filename,
-            "saved_as": unique_name,
-            "result": res
+            "filename": file.filename,
+            "saved_as": file_path,
+            "result": str(res)   # ← ここを str() に変える
         }
     except Exception as e:
         return {"error": str(e)}
