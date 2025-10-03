@@ -17,32 +17,26 @@ function App() {
       .catch(err => console.error(err));
   };
 
-  // 自動アップロードの例
   const handleFileChange = async (event) => {
-    const file = event.target.files[0];
-    if (!file) return;
+  const file = event.target.files[0];
+  if (!file) return;
 
-    const formData = new FormData();
-    formData.append("file", file);
+  const formData = new FormData();
+  formData.append("file", file);
 
-    try {
-      setUploadProgress(0);
-      setMessage("");
+  try {
+    await axios.post(
+      `https://counseling-ai-backend.onrender.com/upload/staffA`, // ← staff名を指定
+      formData,
+      { headers: { "Content-Type": "multipart/form-data" } }
+    );
 
-      await axios.post("https://counseling-ai-backend.onrender.com/upload", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-        onUploadProgress: (progressEvent) => {
-          const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-          setUploadProgress(percent);
-        }
-      });
+    fetchVideos();
+  } catch (err) {
+    console.error("アップロード失敗:", err);
+  }
+};
 
-      setMessage("✅ アップロード成功！");
-      fetchVideos(); // 一覧をリロード
-    } catch (err) {
-      setMessage("❌ アップロード失敗しました");
-    }
-  };
 
   const handlePlay = async (filename) => {
     try {

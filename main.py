@@ -22,11 +22,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.get("/list")
-def list_files():
+@app.get("/list/{staff_name}")
+def list_files(staff_name: str):
     try:
-        files = supabase.storage.from_(SUPABASE_BUCKET).list()
-        return {"files": files}  # ここで created_at や metadata が含まれる
+        files = supabase.storage.from_(SUPABASE_BUCKET).list(path=staff_name)
+        return {"files": files}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
