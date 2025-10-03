@@ -54,14 +54,19 @@ async def upload_file(file: UploadFile = File(...)):
 @app.get("/list")
 def list_files():
     try:
-        files = supabase.storage.from_(SUPABASE_BUCKET).list()
+        files = supabase.storage.from_(SUPABASE_BUCKET).list(path="")
         file_list = []
 
         for f in files:
             name = f["name"]
             public_url = supabase.storage.from_(SUPABASE_BUCKET).get_public_url(name)
+            # ✅ Supabase が返すURLの末尾に ? があれば除去
+            if public_url.endswith("?"):
+                public_url = public_url[:-1]
+
             file_list.append({"filename": name, "public_url": public_url})
 
         return {"files": file_list}
     except Exception as e:
         return {"error": str(e)}
+
