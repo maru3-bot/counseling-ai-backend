@@ -27,7 +27,6 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 def read_root():
     return {"message": "Hello from Counseling AI Backend!"}
 
-
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
     try:
@@ -35,9 +34,11 @@ async def upload_file(file: UploadFile = File(...)):
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
         stored_name = f"{timestamp}_{file.filename}"
 
+        # ✅ Content-Type を指定
         res = supabase.storage.from_(SUPABASE_BUCKET).upload(
             path=stored_name,
             file=contents,
+            file_options={"content-type": file.content_type}  # ← ここを追加
         )
 
         public_url = supabase.storage.from_(SUPABASE_BUCKET).get_public_url(stored_name)
