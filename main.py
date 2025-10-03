@@ -1,73 +1,48 @@
-from fastapi import FastAPI, File, UploadFile
-from fastapi.middleware.cors import CORSMiddleware  # ← これを追加！
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from supabase import create_client
 import os
-from datetime import datetime, timezone
 
+# --- 環境変数から取得 ---
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")  # Service Role Key推奨
+SUPABASE_BUCKET = "videos"
+
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 app = FastAPI()
 
+# CORS設定（Reactから叩けるように）
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],   # 全部許可
+    allow_origins=[
+        "http://localhost:5173",  # Vite
+        "http://localhost:3000",  # create-react-app 互換
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Supabase クライアント設定
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-SUPABASE_BUCKET = os.getenv("SUPABASE_BUCKET", "videos")
-
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-
-
-@app.get("/")
-def read_root():
-    return {"message": "Hello from Counseling AI Backend!"}
-
-@app.post("/upload")
-async def upload_file(file: UploadFile = File(...)):
+@app.get("/signed-url/{filename}")
+def get_signed_url(filename: str):
+    """
+    Supabase から署名付きURLを発行して返す
+    有効期限: 1年間 (31,536,000秒)
+    """
     try:
-        contents = await file.read()
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-        stored_name = f"{timestamp}_{file.filename}"
+        expires_in = 60 * 60 * 24 * 365  # 1年
+        result = supabase.storage.from_(SUPABASE_BUCKET).create_signed_url(filename, expires_in)
 
-        # ファイルを Supabase にアップロード
-        res = supabase.storage.from_(SUPABASE_BUCKET).upload(
-            path=stored_name,
-            file=contents,
-        )
+        # 新しい supabase-py は str を返す
+        if isinstance(result, str):
+            return {"url": result}
 
-        # ✅ 公開URLを取得（署名付きではなく permanent public URL）
-        public_url = supabase.storage.from_("videos").get_public_url(filename)
-    
-        return {
-            "message": "Upload successful",
-            "filename": file.filename,
-            "stored_as": stored_name,
-            "public_url": public_url,  # これを返す
-        }
+        # 古い supabase-py は dict を返す
+        if isinstance(result, dict) and "signedURL" in result:
+            return {"url": result["signedURL"]}
+
+        raise HTTPException(status_code=400, detail="署名付きURLの生成に失敗しました")
+
     except Exception as e:
-        return {"error": str(e)}
-
-@app.get("/list")
-def list_files():
-    try:
-        files = supabase.storage.from_(SUPABASE_BUCKET).list(path="")
-        file_list = []
-
-        for f in files:
-            name = f["name"]
-            public_url = supabase.storage.from_(SUPABASE_BUCKET).get_public_url(name)
-            # ✅ Supabase が返すURLの末尾に ? があれば除去
-            if public_url.endswith("?"):
-                public_url = public_url[:-1]
-
-            file_list.append({"filename": name, "public_url": public_url})
-
-        return {"files": file_list}
-    except Exception as e:
-        return {"error": str(e)}
-
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
