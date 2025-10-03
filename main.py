@@ -37,8 +37,9 @@ async def upload_file(file: UploadFile = File(...)):
         res = supabase.storage.from_(SUPABASE_BUCKET).upload(
             path=stored_name,
             file=contents,
-            file_options={"content-type": "video/mp4"} 
-        )
+            file_options={"content-type": "video/mp4"}  # ★必須！
+            )
+
 
         public_url = supabase.storage.from_(SUPABASE_BUCKET).get_public_url(stored_name)
 
