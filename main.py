@@ -5,6 +5,14 @@ from datetime import datetime, timezone
 
 app = FastAPI()
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],   # 全部許可
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Supabase クライアント設定
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
@@ -44,7 +52,7 @@ async def upload_file(file: UploadFile = File(...)):
 @app.get("/list")
 def list_files():
     try:
-        files = supabase.storage.from_(SUPABASE_BUCKET).list(path="")
+        files = supabase.storage.from_(SUPABASE_BUCKET).list()
         file_list = []
 
         for f in files:
