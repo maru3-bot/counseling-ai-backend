@@ -35,6 +35,10 @@ async def upload_file(staff: str, file: UploadFile = File(...)):
 # スタッフ別フォルダ内の動画一覧を返す
 @app.get("/list/{staff}")
 def list_files(staff: str):
+    """
+    指定スタッフのフォルダ内の動画一覧を返す
+    例: /list/staffA → videos/staffA/ 内のファイル一覧
+    """
     try:
         files = supabase.storage.from_(SUPABASE_BUCKET).list(path=staff)
         return {"files": files}
