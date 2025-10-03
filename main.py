@@ -41,12 +41,10 @@ async def upload_file(file: UploadFile = File(...)):
     except Exception as e:
         return {"error": str(e)}
 
-
-# ✅ ここから新しいエンドポイント
 @app.get("/list")
 def list_files():
     try:
-        files = supabase.storage.from_(SUPABASE_BUCKET).list()
+        files = supabase.storage.from_(SUPABASE_BUCKET).list(path="")
         file_list = []
 
         for f in files:
@@ -57,4 +55,3 @@ def list_files():
         return {"files": file_list}
     except Exception as e:
         return {"error": str(e)}
-    
