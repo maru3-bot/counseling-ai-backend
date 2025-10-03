@@ -1,7 +1,9 @@
 from fastapi import FastAPI, File, UploadFile
+from fastapi.middleware.cors import CORSMiddleware  # ← これを追加！
 from supabase import create_client
 import os
 from datetime import datetime, timezone
+
 
 app = FastAPI()
 
