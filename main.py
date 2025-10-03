@@ -22,13 +22,25 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.get("/list")
+def list_all_files():
+    """全動画ファイル一覧"""
+    try:
+        files = supabase.storage.from_(SUPABASE_BUCKET).list()
+        return {"files": files}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/list/{staff_name}")
-def list_files(staff_name: str):
+def list_staff_files(staff_name: str):
+    """特定スタッフのフォルダ内だけ一覧"""
     try:
         files = supabase.storage.from_(SUPABASE_BUCKET).list(path=staff_name)
         return {"files": files}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/upload/{staff_name}")
 async def upload_file(staff_name: str, file: UploadFile = File(...)):
