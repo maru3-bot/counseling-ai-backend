@@ -4,39 +4,46 @@ import axios from "axios";
 function App() {
   const [videos, setVideos] = useState([]);
   const [videoUrls, setVideoUrls] = useState({});
-  const [selectedFile, setSelectedFile] = useState(null);
+  const [uploadProgress, setUploadProgress] = useState(0); // 追加
+  const [message, setMessage] = useState(""); // 成功/失敗メッセージ
 
-  // 一覧取得
+  useEffect(() => {
+    fetchVideos();
+  }, []);
+
   const fetchVideos = () => {
     axios.get("https://counseling-ai-backend.onrender.com/list")
       .then(res => setVideos(res.data.files))
       .catch(err => console.error(err));
   };
 
-  useEffect(() => {
-    fetchVideos();
-  }, []);
-
-  // アップロード処理
-  const handleUpload = async () => {
-    if (!selectedFile) return alert("ファイルを選択してください");
+  // 自動アップロードの例
+  const handleFileChange = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
 
     const formData = new FormData();
-    formData.append("file", selectedFile);
+    formData.append("file", file);
 
     try {
+      setUploadProgress(0);
+      setMessage("");
+
       await axios.post("https://counseling-ai-backend.onrender.com/upload", formData, {
         headers: { "Content-Type": "multipart/form-data" },
+        onUploadProgress: (progressEvent) => {
+          const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          setUploadProgress(percent);
+        }
       });
-      alert("アップロード成功！");
-      fetchVideos(); // 一覧を更新
+
+      setMessage("✅ アップロード成功！");
+      fetchVideos(); // 一覧をリロード
     } catch (err) {
-      console.error(err);
-      alert("アップロード失敗");
+      setMessage("❌ アップロード失敗しました");
     }
   };
 
-  // 再生ボタンを押したとき署名付きURL取得
   const handlePlay = async (filename) => {
     try {
       const res = await axios.get(
@@ -55,34 +62,34 @@ function App() {
     <div style={{ padding: "20px" }}>
       <h1>アップロード動画一覧</h1>
 
-      {/* アップロードフォーム */}
-      <input
-        type="file"
-        accept="video/mp4"
-        onChange={(e) => setSelectedFile(e.target.files[0])}
-      />
-      <button onClick={handleUpload}>アップロード</button>
+      {/* ファイル選択 */}
+      <input type="file" accept="video/*" onChange={handleFileChange} />
 
-      <hr />
+      {/* プログレスバー */}
+      {uploadProgress > 0 && uploadProgress < 100 && (
+        <div style={{ marginTop: "10px" }}>
+          アップロード中... {uploadProgress}%
+          <progress value={uploadProgress} max="100" />
+        </div>
+      )}
 
-  {videos.map((v) => (
-    <div key={v.id || v.name} style={{ marginBottom: "20px" }}>
-      <p>{v.name}</p>
+      {/* 成功/失敗メッセージ */}
+      {message && <p>{message}</p>}
 
-      <video
-        width="320"
-        height="240"
-        controls
-        src={videoUrls[v.name] || null}   // 空文字 "" ではなく null
-      />
-
-      <br />
-        <button onClick={() => handlePlay(v.name)}>
-        ▶ 再生する
-        </button>
-    </div>
-))}
-
+      {/* 動画一覧 */}
+      {videos.map((v, i) => (
+        <div key={i} style={{ marginBottom: "20px" }}>
+          <p>{v.name} （{Math.round(v.metadata.size / 1024)} KB, {v.created_at}）</p>
+          <video
+            width="320"
+            height="240"
+            controls
+            src={videoUrls[v.name] || ""}
+          />
+          <br />
+          <button onClick={() => handlePlay(v.name)}>▶ 再生する</button>
+        </div>
+      ))}
     </div>
   );
 }

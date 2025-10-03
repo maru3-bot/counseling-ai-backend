@@ -24,31 +24,31 @@ app.add_middleware(
 
 @app.get("/list")
 def list_files():
-    """
-    Supabase バケット内のファイル一覧を返す
-    """
     try:
         files = supabase.storage.from_(SUPABASE_BUCKET).list()
-        return {"files": files}
+        return {"files": files}  # ここで created_at や metadata が含まれる
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
-@app.post("/upload")
-async def upload_file(file: UploadFile = File(...)):
+@app.post("/upload/{staff_name}")
+async def upload_file(staff_name: str, file: UploadFile = File(...)):
     """
-    動画を Supabase Storage にアップロード
+    スタッフごとにフォルダ分けしてアップロード
+    例: videos/staffA/20251003-xxxx.mp4
     """
     try:
         content = await file.read()
-        
-        # 拡張子を維持しつつ一意なファイル名を生成
-        ext = os.path.splitext(file.filename)[1]  # 例: ".mp4"
-        unique_name = datetime.now().strftime("%Y%m%d-%H%M%S") + "_" + file.filename
 
-        supabase.storage.from_(SUPABASE_BUCKET).upload(unique_name, content)
+        # ファイル名にタイムスタンプを付与
+        import time
+        unique_name = f"{int(time.time())}_{file.filename}"
 
-        return {"message": "アップロード成功", "filename": unique_name}
+        # パスを staff_name のフォルダに振り分け
+        file_path = f"{staff_name}/{unique_name}"
+
+        supabase.storage.from_(SUPABASE_BUCKET).upload(file_path, content)
+
+        return {"message": "アップロード成功", "filename": file_path}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
