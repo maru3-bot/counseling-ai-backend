@@ -21,49 +21,33 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 @app.get("/list")
-def list_files():
-    """
-    Supabase バケット内のファイル一覧を返す
-    """
+def list_files(prefix: str = ""):
     try:
-        files = supabase.storage.from_(SUPABASE_BUCKET).list()
+        files = supabase.storage.from_(SUPABASE_BUCKET).list(path=prefix)
         return {"files": files}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
-@app.post("/upload")
-async def upload_file(file: UploadFile = File(...)):
-    """
-    動画を Supabase Storage にアップロード
-    """
+@app.post("/upload/{staff}")
+async def upload_file(staff: str, file: UploadFile = File(...)):
     try:
         content = await file.read()
-        supabase.storage.from_(SUPABASE_BUCKET).upload(file.filename, content)
-        return {"message": "アップロード成功", "filename": file.filename}
+        stored_name = f"{staff}/{file.filename}"  # staff フォルダ内に保存
+        supabase.storage.from_(SUPABASE_BUCKET).upload(stored_name, content)
+        return {"message": "アップロード成功", "filename": stored_name}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
-@app.get("/signed-url/{filename}")
-def get_signed_url(filename: str):
-    """
-    Supabase から署名付きURLを発行して返す
-    有効期限: 1年
-    """
+@app.get("/signed-url/{staff}/{filename}")
+def get_signed_url(staff: str, filename: str):
     try:
+        stored_name = f"{staff}/{filename}"
         expires_in = 60 * 60 * 24 * 365  # 1年
-        signed_url = supabase.storage.from_(SUPABASE_BUCKET).create_signed_url(filename, expires_in)
-
-        if isinstance(signed_url, dict) and "signedURL" in signed_url:
-            return {"url": signed_url["signedURL"]}
-        else:
-            return {"url": signed_url}
+        signed_url = supabase.storage.from_(SUPABASE_BUCKET).create_signed_url(stored_name, expires_in)
+        return {"url": signed_url["signedURL"] if isinstance(signed_url, dict) else signed_url}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
 
 @app.delete("/delete/{filename}")
 def delete_file(filename: str):
