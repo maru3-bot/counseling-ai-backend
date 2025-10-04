@@ -1,3 +1,11 @@
+from fastapi import Depends, Header
+
+ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "")
+
+def admin_auth(x_admin_token: str = Header(...)):
+    if not ADMIN_TOKEN or x_admin_token != ADMIN_TOKEN:
+        raise HTTPException(status_code=401, detail="Invalid admin token")
+import os
 import base64
 import io
 import json
@@ -47,7 +55,7 @@ app = FastAPI()
 # CORS（検証用に * 許可。必要に応じて絞る）
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 例: ["http://localhost:5173", "https://your-frontend.example.com"]
+    allow_origins=["https://your-frontend.example.com"],  # 本番URLに変更
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -79,7 +87,7 @@ class AnalyzeResponse(BaseModel):
     analysis: Dict[str, Any]
     created_at: str
 
-def get_openai_client() -> Optional["OpenAI"]:
+def get_openai_client() -> Optional[Any]:
     if not OPENAI_API_KEY or OpenAI is None:
         return None
     return OpenAI(api_key=OPENAI_API_KEY)
@@ -181,7 +189,7 @@ def download_file_bytes(staff: str, filename: str) -> bytes:
 
 # --- 既存ファイルの Content-Type 修復（Service Role 必須） ---
 @app.post("/admin/fix-content-type/{staff}/{filename}")
-def fix_content_type(staff: str, filename: str, content_type: Optional[str] = None):
+def fix_content_type(staff: str, filename: str, content_type: Optional[str] = None, x_admin_token: str = Depends(admin_auth)):
     """
     既存のオブジェクトを同一パスで「上書き」して、Content-Type を付与/修正します。
     注意: RLS の影響を受けないよう、必ず Service Role Key で接続してください。
@@ -212,7 +220,7 @@ def fix_content_type(staff: str, filename: str, content_type: Optional[str] = No
 
 # 管理用: 接続しているキーの role を確認（開発用途。必要なければ削除）
 @app.get("/admin/check-role", include_in_schema=False)
-def admin_check_role():
+def admin_check_role(x_admin_token: str = Depends(admin_auth)):
     try:
         t = SUPABASE_KEY or ""
         payload_b64 = t.split(".")[1]

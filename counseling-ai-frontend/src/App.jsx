@@ -77,6 +77,7 @@ function App() {
       setLoadingMap((m) => ({ ...m, [filename]: false }));
     }
   };
+  
 
   // 既存の分析結果を取得
   const handleFetchAnalysis = async (filename) => {
@@ -136,11 +137,11 @@ function App() {
 
             {a && (
               <div
+                className="analysis-card"
                 style={{
                   border: "1px solid #ccc",
                   borderRadius: 8,
                   padding: 12,
-                  background: "#f9f9f9",
                 }}
               >
                 <p style={{ margin: "4px 0" }}>
