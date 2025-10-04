@@ -87,13 +87,12 @@ EXTENSION_CT_MAP = {
 def guess_content_type(filename: str, fallback: str | None = None) -> str:
     ct, _ = mimetypes.guess_type(filename)
     if not ct or ct.startswith("text/"):
-        # text/plain などは動画/音声の可能性が高いので拡張子で補正
         ext = os.path.splitext(filename)[1].lower()
         return EXTENSION_CT_MAP.get(ext, fallback or "application/octet-stream")
     return ct
 
 def strip_download_param(signed_url: str) -> str:
-    """Supabaseの署名URLに付く ?download=xxx を除去して inline 再生を促す"""
+    """Supabase署名URLに付く ?download=... を除去して inline 再生を促す"""
     p = urlparse(signed_url)
     q = [(k, v) for k, v in parse_qsl(p.query, keep_blank_values=True) if k.lower() != "download"]
     new_query = urlencode(q)
@@ -113,10 +112,11 @@ async def upload_file(staff: str, file: UploadFile = File(...)):
         content = await file.read()
         content_type = guess_content_type(file.filename, fallback=(file.content_type or None))
 
+        # 重要: snake_case + boolean True
         supabase.storage.from_(SUPABASE_BUCKET).upload(
             path,
             content,
-            file_options={"contentType": content_type, "upsert": "true"},
+            file_options={"content_type": content_type, "upsert": True},
         )
 
         return {
@@ -144,7 +144,12 @@ def get_signed_url(staff: str, filename: str, expires_sec: int = 3600):
     try:
         path = f"{staff}/{filename}"
         res = supabase.storage.from_(SUPABASE_BUCKET).create_signed_url(path, expires_sec)
-        url = res.get("signedURL") or res.get("signed_url")
+        url = None
+        if isinstance(res, dict):
+            url = res.get("signedURL") or res.get("signed_url") or (res.get("data") or {}).get("signedURL") or (res.get("data") or {}).get("signed_url")
+        if not url:
+            # オブジェクト/属性形式にも対応
+            url = getattr(res, "signedURL", None) or getattr(res, "signed_url", None) or getattr(getattr(res, "data", None), "signedURL", None) or getattr(getattr(res, "data", None), "signed_url", None)
         if not url:
             raise HTTPException(404, f"Signed URL not returned for path: {path}")
         clean = strip_download_param(url)
@@ -168,7 +173,6 @@ def fix_content_type(staff: str, filename: str, content_type: Optional[str] = No
     """
     try:
         path = f"{staff}/{filename}"
-        # 存在確認（無ければ 404）
         listing = supabase.storage.from_(SUPABASE_BUCKET).list(staff)
         names = {item.get("name") for item in listing or []}
         if filename not in names:
@@ -179,10 +183,11 @@ def fix_content_type(staff: str, filename: str, content_type: Optional[str] = No
             raise HTTPException(500, f"download returned non-bytes type: {type(data)}")
 
         ct = content_type or guess_content_type(filename)
+        # 重要: snake_case + boolean True
         supabase.storage.from_(SUPABASE_BUCKET).upload(
             path,
             data,
-            file_options={"contentType": ct, "upsert": "true"},
+            file_options={"content_type": ct, "upsert": True},
         )
         return {"message": "fixed", "path": path, "content_type": ct}
     except HTTPException:
@@ -244,6 +249,20 @@ ANALYZE_SYSTEM_PROMPT = """あなたはたくさんの顧客を抱える日本�
 }
 """
 
+def safe_json_extract(text: str) -> Dict[str, Any]:
+    t = text.strip()
+    if t.startswith("```"):
+        t = t.strip("`")
+        t = t.replace("json", "", 1).strip()
+    start = t.find("{")
+    end = t.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        t = t[start : end + 1]
+    try:
+        return json.loads(t)
+    except Exception as e:
+        raise HTTPException(500, f"Failed to parse JSON from model output: {e}. Raw: {text[:500]}")
+
 def analyze_with_openai(transcript: str, model: str) -> Dict[str, Any]:
     client = get_openai_client()
     if client is None:
@@ -261,20 +280,6 @@ def analyze_with_openai(transcript: str, model: str) -> Dict[str, Any]:
         return safe_json_extract(content)
     except Exception as e:
         raise HTTPException(500, f"OpenAI analyze failed: {e}")
-
-def safe_json_extract(text: str) -> Dict[str, Any]:
-    t = text.strip()
-    if t.startswith("```"):
-        t = t.strip("`")
-        t = t.replace("json", "", 1).strip()
-    start = t.find("{")
-    end = t.rfind("}")
-    if start != -1 and end != -1 and end > start:
-        t = t[start : end + 1]
-    try:
-        return json.loads(t)
-    except Exception as e:
-        raise HTTPException(500, f"Failed to parse JSON from model output: {e}. Raw: {text[:500]}")
 
 def analyze(transcript: str) -> tuple[str, Dict[str, Any]]:
     mode = MODEL_MODE.lower()
