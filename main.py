@@ -36,7 +36,7 @@ MODEL_MODE = os.getenv("USE_MODEL", "low")  # low/high
 
 app = FastAPI()
 
-# CORS設定（検証しやすいように * 許可）
+# CORS設定
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -112,11 +112,11 @@ async def upload_file(staff: str, file: UploadFile = File(...)):
         content = await file.read()
         content_type = guess_content_type(file.filename, fallback=(file.content_type or None))
 
-        # 重要: snake_case + boolean True
+        # 重要: file_options のキーはハイフン、値は文字列
         supabase.storage.from_(SUPABASE_BUCKET).upload(
             path,
             content,
-            file_options={"content_type": content_type, "upsert": True},
+            file_options={"content-type": content_type, "x-upsert": "true"},
         )
 
         return {
@@ -148,7 +148,6 @@ def get_signed_url(staff: str, filename: str, expires_sec: int = 3600):
         if isinstance(res, dict):
             url = res.get("signedURL") or res.get("signed_url") or (res.get("data") or {}).get("signedURL") or (res.get("data") or {}).get("signed_url")
         if not url:
-            # オブジェクト/属性形式にも対応
             url = getattr(res, "signedURL", None) or getattr(res, "signed_url", None) or getattr(getattr(res, "data", None), "signedURL", None) or getattr(getattr(res, "data", None), "signed_url", None)
         if not url:
             raise HTTPException(404, f"Signed URL not returned for path: {path}")
@@ -183,11 +182,10 @@ def fix_content_type(staff: str, filename: str, content_type: Optional[str] = No
             raise HTTPException(500, f"download returned non-bytes type: {type(data)}")
 
         ct = content_type or guess_content_type(filename)
-        # 重要: snake_case + boolean True
         supabase.storage.from_(SUPABASE_BUCKET).upload(
             path,
             data,
-            file_options={"content_type": ct, "upsert": True},
+            file_options={"content-type": ct, "x-upsert": "true"},
         )
         return {"message": "fixed", "path": path, "content_type": ct}
     except HTTPException:
