@@ -1,25 +1,35 @@
 # Python
 __pycache__/
 *.py[cod]
-*$py.class
-*.so
-.Python
-env/
+*.pyo
+*.pyd
+*.egg-info/
+.venv/
 venv/
-ENV/
-.venv
+env/
+.pytest_cache/
+.cache/
 
-# Environment variables
+# Node/Vite (frontend)
+counseling-ai-frontend/node_modules/
+counseling-ai-frontend/dist/
+
+# Env and secrets
 .env
 .env.local
+*.env
 
-# IDE
+# Editors/IDE
 .vscode/
 .idea/
-*.swp
-*.swo
-*~
 
 # OS
 .DS_Store
 Thumbs.db
+
+# Build/coverage
+build/
+coverage/
+
+# Supabase local
+.supabase/

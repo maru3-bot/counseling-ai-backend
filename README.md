@@ -1,62 +1,47 @@
 # counseling-ai-backend
 社内カウンセリング教育アプリケーション
 
-## セットアップ
+## 機能概要
+- 動画/音声のアップロード・一覧・再生（Supabase Storage）
+- 文字起こし（OpenAI Whisper、自動音声抽出・圧縮で25MB制限を回避）
+- 要約/強み/改善/スコア/講評の自動分析（JSONモード、長文は分割→統合）
+- 分析結果の保存/取得（assessmentsテーブル、未作成でも動作）
+- プロンプトはMarkdown外部ファイルでホットリロード（サーバ再起動不要）
 
-### バックエンド (FastAPI)
+## 必要環境変数 (.env)
+```
+SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
+SUPABASE_BUCKET=videos
 
-1. 環境変数を設定:
-```bash
-export SUPABASE_URL="your-supabase-url"
-export SUPABASE_SERVICE_ROLE_KEY="your-service-role-key"
-export SUPABASE_BUCKET="videos"  # オプション、デフォルトは "videos"
+OPENAI_API_KEY=
+USE_MODEL=low  # low|high
+
+# プロンプトのパス（未設定なら既定を使用）
+ANALYZE_PROMPT_PATH=prompts/analyze_system_prompt.md
+MERGE_PROMPT_PATH=prompts/merge_system_prompt.md
+COMPANY_VALUES_PATH=prompts/company_values.md
+EDUCATION_PLAN_PATH=prompts/education_plan.md
 ```
 
-2. 依存関係をインストール:
-```bash
-pip install -r requirements.txt
+## 起動
 ```
-
-3. サーバーを起動:
-```bash
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
+# 仮想環境を有効化後
+uvicorn main:app --reload --port 8000 --host 127.0.0.1 --env-file .env
 ```
+- ヘルスチェック: http://127.0.0.1:8000/healthz
 
-### フロントエンド (React + Vite)
+## API（主要）
+- POST /upload/{staff}
+- GET  /list/{staff}
+- GET  /signed-url/{staff}/{filename}
+- DELETE /delete/{staff}/{filename}
+- POST /analyze/{staff}/{filename}?force=true|false
+- GET  /analysis/{staff}/{filename}
+- GET  /results/{staff}
 
-1. フロントエンドディレクトリに移動:
-```bash
-cd counseling-ai-frontend
-```
-
-2. 依存関係をインストール:
-```bash
-npm install
-```
-
-3. 環境変数を設定（ローカル開発用）:
-```bash
-cp .env.example .env.local
-# .env.localを編集してAPI_BASEを設定
-# VITE_API_BASE=http://localhost:8000
-```
-
-4. 開発サーバーを起動:
-```bash
-npm run dev
-```
-
-## API エンドポイント
-
-- `GET /healthz` - ヘルスチェック
-- `POST /upload/{staff}` - 動画アップロード（スタッフ別フォルダ）
-- `GET /list/{staff}` - スタッフ別動画一覧取得
-- `GET /signed-url/{staff}/{filename}` - 動画再生用署名付きURL取得
-
-## 機能
-
-- スタッフ別の動画アップロードと管理
-- Supabase Storageを使用した動画保存
-- 署名付きURLによる安全な動画再生
-- ダークモード対応UI
-
+## プロンプト外部化
+- prompts/analyze_system_prompt.md（分析の指示）
+- prompts/merge_system_prompt.md（分割結果の統合指示）
+- 差し込み: prompts/company_values.md, prompts/education_plan.md
+- これらを保存すると、次回の「分析する」から自動反映されます（再起動不要）。
