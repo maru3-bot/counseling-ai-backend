@@ -254,6 +254,8 @@ def safe_json_extract(text: str) -> Dict[str, Any]:
         t = t[start : end + 1]
     return json.loads(t)
 
+# 既存の analyze_with_openai と safe_json_extract を次で置き換え
+
 def analyze_with_openai(transcript: str, model: str) -> Dict[str, Any]:
     client = get_openai_client()
     if client is None:
@@ -269,6 +271,21 @@ def analyze_with_openai(transcript: str, model: str) -> Dict[str, Any]:
         )
         content = resp.choices[0].message.content
         return safe_json_extract(content)
+        response_format={"type": "json_object"},  # JSONモードで厳格に
+        
+        # 応答本文を取得
+        content = getattr(resp.choices[0].message, "content", "") or ""
+        if not content.strip():
+            finish_reason = getattr(resp.choices[0], "finish_reason", None)
+            raise HTTPException(
+                500,
+                f"Model returned empty content (finish_reason={finish_reason}). "
+                "入力（文字起こし）が長すぎる可能性があります。短いクリップで再試行するか、後述の分割要約をご検討ください。"
+            )
+        # JSONモードなのでそのままJSONパース可能
+        return json.loads(content)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(500, f"OpenAI analyze failed: {e}")
 
