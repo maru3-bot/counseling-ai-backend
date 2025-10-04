@@ -2,6 +2,7 @@ import io
 import json
 import os
 import mimetypes
+from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
 from datetime import datetime
 from typing import Any, Dict, Optional
 
@@ -91,6 +92,13 @@ def guess_content_type(filename: str, fallback: str | None = None) -> str:
         return EXTENSION_CT_MAP.get(ext, fallback or "application/octet-stream")
     return ct
 
+def strip_download_param(signed_url: str) -> str:
+    """Supabaseの署名URLに付く ?download=xxx を除去して inline 再生を促す"""
+    p = urlparse(signed_url)
+    q = [(k, v) for k, v in parse_qsl(p.query, keep_blank_values=True) if k.lower() != "download"]
+    new_query = urlencode(q)
+    return urlunparse((p.scheme, p.netloc, p.path, p.params, new_query, p.fragment))
+
 @app.post("/upload/{staff}")
 async def upload_file(staff: str, file: UploadFile = File(...)):
     """
@@ -131,14 +139,20 @@ def list_files(staff: str):
 @app.get("/signed-url/{staff}/{filename}")
 def get_signed_url(staff: str, filename: str, expires_sec: int = 3600):
     """
-    動画再生用の署名付きURLを発行（downloadパラメータは付けない）
+    動画再生用の署名付きURLを発行（downloadパラメータを除去して返す）
     """
     try:
         path = f"{staff}/{filename}"
         res = supabase.storage.from_(SUPABASE_BUCKET).create_signed_url(path, expires_sec)
-        return {"url": res.get("signedURL") or res.get("signed_url")}
+        url = res.get("signedURL") or res.get("signed_url")
+        if not url:
+            raise HTTPException(404, f"Signed URL not returned for path: {path}")
+        clean = strip_download_param(url)
+        return {"url": clean}
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"signed-url error: {e}")
 
 def download_file_bytes(staff: str, filename: str) -> bytes:
     path = f"{staff}/{filename}"
@@ -154,7 +168,16 @@ def fix_content_type(staff: str, filename: str, content_type: Optional[str] = No
     """
     try:
         path = f"{staff}/{filename}"
+        # 存在確認（無ければ 404）
+        listing = supabase.storage.from_(SUPABASE_BUCKET).list(staff)
+        names = {item.get("name") for item in listing or []}
+        if filename not in names:
+            raise HTTPException(404, f"File not found: {path}")
+
         data = supabase.storage.from_(SUPABASE_BUCKET).download(path)
+        if not isinstance(data, (bytes, bytearray)):
+            raise HTTPException(500, f"download returned non-bytes type: {type(data)}")
+
         ct = content_type or guess_content_type(filename)
         supabase.storage.from_(SUPABASE_BUCKET).upload(
             path,
@@ -162,8 +185,10 @@ def fix_content_type(staff: str, filename: str, content_type: Optional[str] = No
             file_options={"contentType": ct, "upsert": "true"},
         )
         return {"message": "fixed", "path": path, "content_type": ct}
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"fix failed: {e}")
+        raise HTTPException(status_code=500, detail=f"fix-content-type error: {e}")
 
 def transcribe_with_whisper(file_bytes: bytes, filename: str) -> str:
     client = get_openai_client()
