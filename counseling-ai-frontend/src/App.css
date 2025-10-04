@@ -1,10 +1,13 @@
+/* App-wide layout */
 #root {
   max-width: 1280px;
   margin: 0 auto;
   padding: 2rem;
-  text-align: center;
+  /* 分析結果などの文章は左寄せのほうが読みやすい */
+  text-align: left;
 }
 
+/* Vite/React のサンプル用スタイル（必要なら残す） */
 .logo {
   height: 6em;
   padding: 1.5em;
@@ -19,24 +22,75 @@
 }
 
 @keyframes logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
 }
-
 @media (prefers-reduced-motion: no-preference) {
   a:nth-of-type(2) .logo {
     animation: logo-spin infinite 20s linear;
   }
 }
 
+/* 汎用カード */
 .card {
   padding: 2em;
 }
 
+/* 補助テキスト */
 .read-the-docs {
   color: #888;
+}
+
+/* ========== ここから可読性対策（重要） ========== */
+/* Tailwind の bg-white を使っている要素で、文字色が白系に継承されて読めなくなる問題を解消
+   → 白背景のときは濃い文字色を強制する */
+.bg-white {
+  color: #111827 !important; /* slate-900 相当の濃い文字色 */
+}
+.bg-white :is(h1,h2,h3,h4,h5,h6,p,li,div,span,small,strong,em,label,dt,dd) {
+  color: inherit !important;
+}
+
+/* ダークテーマでも “白背景 × 濃い文字” を維持 */
+:root.dark .bg-white,
+.dark .bg-white,
+[data-theme="dark"] .bg-white {
+  color: #111827 !important;
+}
+
+/* 分析結果ボックスに使うと見やすいスタイル
+   （Tailwind未使用の箇所でも適用しやすいようにクラスを定義） */
+.analysis-card {
+  background: #ffffff;
+  color: #111827;
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+}
+.analysis-card :is(h1,h2,h3,h4,h5,h6,p,li,div,span,small,strong,em,label,dt,dd) {
+  color: inherit;
+}
+:root.dark .analysis-card,
+.dark .analysis-card,
+[data-theme="dark"] .analysis-card {
+  background: #ffffff !important;
+  color: #111827 !important;
+}
+
+/* 分析結果の中の小見出しの間隔（任意） */
+.analysis-card h4 {
+  margin: 0.25rem 0 0.5rem;
+  font-weight: 600;
+}
+.analysis-card ul {
+  margin: 0.25rem 0 0.75rem 1rem;
+  padding-left: 0.75rem;
+}
+.analysis-card li {
+  list-style: disc;
+}
+
+/* 動画プレイヤー周り（任意・レイアウト安定用） */
+.video-block {
+  margin-bottom: 1rem;
 }
