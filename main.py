@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict  # ← ConfigDict を追加
 from supabase import create_client
 from supabase.client import Client
 
@@ -42,8 +42,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 class AnalyzeResponse(BaseModel):
+    # 「model_」で始まるフィールド名を許可（警告を抑制）
+    model_config = ConfigDict(protected_namespaces=())
+
     staff: str
     filename: str
     transcript: str
@@ -51,7 +53,6 @@ class AnalyzeResponse(BaseModel):
     model_name: str
     analysis: Dict[str, Any]
     created_at: str
-
 
 def get_openai_client() -> Optional["OpenAI"]:
     if not OPENAI_API_KEY or OpenAI is None:
