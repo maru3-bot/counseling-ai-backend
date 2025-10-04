@@ -1,65 +1,47 @@
 # counseling-ai-backend
 社内カウンセリング教育アプリケーション
 
-## 概要
+## 機能概要
+- 動画/音声のアップロード・一覧・再生（Supabase Storage）
+- 文字起こし（OpenAI Whisper、自動音声抽出・圧縮で25MB制限を回避）
+- 要約/強み/改善/スコア/講評の自動分析（JSONモード、長文は分割→統合）
+- 分析結果の保存/取得（assessmentsテーブル、未作成でも動作）
+- プロンプトはMarkdown外部ファイルでホットリロード（サーバ再起動不要）
 
-このバックエンドは、カウンセリングセッションの動画をアップロード、分析し、フィードバックを生成するためのAPIを提供します。
+## 必要環境変数 (.env)
+```
+SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
+SUPABASE_BUCKET=videos
 
-## 新機能: 外部プロンプト管理
+OPENAI_API_KEY=
+USE_MODEL=low  # low|high
 
-### 特徴
-
-- **編集可能なプロンプト**: プロンプトは外部のMarkdownファイルとして管理され、コードを変更せずに編集可能
-- **ホットリロード**: ファイルを編集すると、サーバーを再起動せずに変更が反映される
-- **プレースホルダー置換**: `{{company_values}}` と `{{education_plan}}` プレースホルダーを使用して、会社の価値観や教育計画を動的に挿入
-- **環境変数サポート**: プロンプトファイルのパスは環境変数でカスタマイズ可能
-
-### プロンプトファイル
-
-- `prompts/analyze_system_prompt.md` - 分析用システムプロンプト
-- `prompts/merge_system_prompt.md` - 複数チャンクの統合用プロンプト
-- `prompts/company_values.md` - 会社の価値観（オプション）
-- `prompts/education_plan.md` - 教育計画（オプション）
-
-### 使用方法
-
-1. プロンプトファイルを直接編集
-2. 保存後、次のリクエストで自動的に反映される（再起動不要）
-3. プレースホルダーを使用して、長い会社の方針や教育フレームワークを含める
-
-### 設定
-
-`.env`ファイルで以下の環境変数を設定できます（`.env.example`を参照）:
-
-```env
-# プロンプトファイルパス（オプション、デフォルト値）
+# プロンプトのパス（未設定なら既定を使用）
 ANALYZE_PROMPT_PATH=prompts/analyze_system_prompt.md
 MERGE_PROMPT_PATH=prompts/merge_system_prompt.md
 COMPANY_VALUES_PATH=prompts/company_values.md
 EDUCATION_PLAN_PATH=prompts/education_plan.md
 ```
 
-## API エンドポイント
-
-- `POST /upload/{staff}` - 動画ファイルをアップロード
-- `GET /list/{staff}` - スタッフの動画一覧を取得
-- `GET /signed-url/{staff}/{filename}` - 署名付きURL取得
-- `DELETE /delete/{staff}/{filename}` - 動画ファイルを削除
-- `POST /analyze/{staff}/{filename}` - 動画の分析を開始
-- `GET /analysis/{analysis_id}` - 分析のステータスを確認
-- `GET /results/{analysis_id}` - 分析結果を取得
-- `GET /healthz` - ヘルスチェック
-
-## セットアップ
-
-1. 依存関係のインストール:
-```bash
-pip install -r requirements.txt
+## 起動
 ```
-
-2. 環境変数の設定（`.env.example`を`.env`にコピーして編集）
-
-3. サーバーの起動:
-```bash
-uvicorn main:app --reload
+# 仮想環境を有効化後
+uvicorn main:app --reload --port 8000 --host 127.0.0.1 --env-file .env
 ```
+- ヘルスチェック: http://127.0.0.1:8000/healthz
+
+## API（主要）
+- POST /upload/{staff}
+- GET  /list/{staff}
+- GET  /signed-url/{staff}/{filename}
+- DELETE /delete/{staff}/{filename}
+- POST /analyze/{staff}/{filename}?force=true|false
+- GET  /analysis/{staff}/{filename}
+- GET  /results/{staff}
+
+## プロンプト外部化
+- prompts/analyze_system_prompt.md（分析の指示）
+- prompts/merge_system_prompt.md（分割結果の統合指示）
+- 差し込み: prompts/company_values.md, prompts/education_plan.md
+- これらを保存すると、次回の「分析する」から自動反映されます（再起動不要）。

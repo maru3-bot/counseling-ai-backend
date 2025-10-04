@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
 
+// APIベースURLを環境変数から取得（デフォルトはlocalhost）
+const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
+
 function App() {
   const [videos, setVideos] = useState([]);
   const [videoUrls, setVideoUrls] = useState({});
@@ -10,7 +13,7 @@ function App() {
   const fetchVideos = async (selectedStaff) => {
     try {
       const res = await axios.get(
-        `https://counseling-ai-backend.onrender.com/list/${selectedStaff}`
+        `${API_BASE}/list/${selectedStaff}`
       );
       setVideos(res.data.files);
     } catch (err) {
@@ -33,7 +36,7 @@ function App() {
 
     try {
       await axios.post(
-        `https://counseling-ai-backend.onrender.com/upload/${staff}`,
+        `${API_BASE}/upload/${staff}`,
         formData,
         { headers: { "Content-Type": "multipart/form-data" } }
       );
@@ -48,7 +51,7 @@ function App() {
   const handlePlay = async (filename) => {
     try {
       const res = await axios.get(
-        `https://counseling-ai-backend.onrender.com/signed-url/${staff}/${filename}`
+        `${API_BASE}/signed-url/${staff}/${filename}`
       );
       setVideoUrls((prev) => ({
         ...prev,

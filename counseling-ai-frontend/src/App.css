@@ -40,3 +40,12 @@
 .read-the-docs {
   color: #888;
 }
+
+/* Fix for white text on white background in dark mode */
+.bg-white,
+.analysis-card {
+  background-color: white;
+  color: #213547;
+  padding: 1rem;
+  border-radius: 8px;
+}
