@@ -35,10 +35,10 @@ MODEL_MODE = os.getenv("USE_MODEL", "low")  # low/high
 
 app = FastAPI()
 
-# CORS設定（検証しやすいように * 許可。必要に応じて絞ってください）
+# CORS設定（検証しやすいように * 許可）
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 例: ["http://localhost:5173", "https://your-frontend.example.com"]
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -53,9 +53,7 @@ def favicon():
     return PlainTextResponse("", status_code=204)
 
 class AnalyzeResponse(BaseModel):
-    # 「model_」で始まるフィールド名の警告を抑制
-    model_config = ConfigDict(protected_namespaces=())
-
+    model_config = ConfigDict(protected_namespaces=())  # 「model_」警告抑制
     staff: str
     filename: str
     transcript: str
@@ -64,17 +62,34 @@ class AnalyzeResponse(BaseModel):
     analysis: Dict[str, Any]
     created_at: str
 
-
 def get_openai_client() -> Optional["OpenAI"]:
     if not OPENAI_API_KEY or OpenAI is None:
         return None
     return OpenAI(api_key=OPENAI_API_KEY)
 
-
 @app.get("/healthz")
 def healthz():
     return {"ok": True, "mode": MODEL_MODE}
 
+# --- Content-Type 判定の補助 ---
+EXTENSION_CT_MAP = {
+    ".mp4": "video/mp4",
+    ".m4v": "video/mp4",
+    ".mov": "video/quicktime",
+    ".webm": "video/webm",
+    ".mp3": "audio/mpeg",
+    ".m4a": "audio/mp4",
+    ".wav": "audio/wav",
+    ".aac": "audio/aac",
+}
+
+def guess_content_type(filename: str, fallback: str | None = None) -> str:
+    ct, _ = mimetypes.guess_type(filename)
+    if not ct or ct.startswith("text/"):
+        # text/plain などは動画/音声の可能性が高いので拡張子で補正
+        ext = os.path.splitext(filename)[1].lower()
+        return EXTENSION_CT_MAP.get(ext, fallback or "application/octet-stream")
+    return ct
 
 @app.post("/upload/{staff}")
 async def upload_file(staff: str, file: UploadFile = File(...)):
@@ -87,12 +102,9 @@ async def upload_file(staff: str, file: UploadFile = File(...)):
         unique_filename = f"{timestamp}_{file.filename}"
         path = f"{staff}/{unique_filename}"
 
-        # Content-Type を推測（例: .mp4 -> video/mp4）
-        guessed, _ = mimetypes.guess_type(file.filename)
-        content_type = guessed or file.content_type or "application/octet-stream"
-
         content = await file.read()
-        # Content-Type と upsert を明示
+        content_type = guess_content_type(file.filename, fallback=(file.content_type or None))
+
         supabase.storage.from_(SUPABASE_BUCKET).upload(
             path,
             content,
@@ -108,49 +120,58 @@ async def upload_file(staff: str, file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
 @app.get("/list/{staff}")
 def list_files(staff: str):
-    """
-    スタッフ別のファイル一覧を取得
-    """
     try:
         items = supabase.storage.from_(SUPABASE_BUCKET).list(staff)
         return {"files": items}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
 @app.get("/signed-url/{staff}/{filename}")
 def get_signed_url(staff: str, filename: str, expires_sec: int = 3600):
     """
-    動画再生用の署名付きURLを発行
+    動画再生用の署名付きURLを発行（downloadパラメータは付けない）
     """
     try:
         path = f"{staff}/{filename}"
-        # download パラメータは付けない（付けると attachment 扱いになりやすい）
         res = supabase.storage.from_(SUPABASE_BUCKET).create_signed_url(path, expires_sec)
         return {"url": res.get("signedURL") or res.get("signed_url")}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
 
 def download_file_bytes(staff: str, filename: str) -> bytes:
     path = f"{staff}/{filename}"
     data = supabase.storage.from_(SUPABASE_BUCKET).download(path)
     return data
 
+# --- 既存ファイルの Content-Type を修復（同じパスに上書き） ---
+@app.post("/admin/fix-content-type/{staff}/{filename}")
+def fix_content_type(staff: str, filename: str, content_type: Optional[str] = None):
+    """
+    既存のオブジェクトを同一パスで再アップロードし、Content-Type を付与/修正します。
+    content_type を省略すると拡張子から推測します。
+    """
+    try:
+        path = f"{staff}/{filename}"
+        data = supabase.storage.from_(SUPABASE_BUCKET).download(path)
+        ct = content_type or guess_content_type(filename)
+        supabase.storage.from_(SUPABASE_BUCKET).upload(
+            path,
+            data,
+            file_options={"contentType": ct, "upsert": "true"},
+        )
+        return {"message": "fixed", "path": path, "content_type": ct}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"fix failed: {e}")
 
 def transcribe_with_whisper(file_bytes: bytes, filename: str) -> str:
-    """
-    OpenAI Whisper APIで文字起こし
-    """
     client = get_openai_client()
     if client is None:
         raise HTTPException(500, "OPENAI_API_KEY が未設定か openai ライブラリがありません。")
 
     bio = io.BytesIO(file_bytes)
-    bio.name = filename  # 一部クライアントは拡張子に依存するため
+    bio.name = filename
     try:
         tr = client.audio.transcriptions.create(
             model="whisper-1",
@@ -165,7 +186,6 @@ def transcribe_with_whisper(file_bytes: bytes, filename: str) -> str:
         raise HTTPException(500, "Whisper transcription response could not be parsed.")
     except Exception as e:
         raise HTTPException(500, f"Transcription failed: {e}")
-
 
 ANALYZE_SYSTEM_PROMPT = """あなたはたくさんの顧客を抱える日本人美容師です。
 カウンセリング力に定評があり、顧客からの信頼も厚く、全国各地でセミナーを開催しています。
@@ -199,14 +219,10 @@ ANALYZE_SYSTEM_PROMPT = """あなたはたくさんの顧客を抱える日本�
 }
 """
 
-def get_openai_client_for_chat() -> "OpenAI":
+def analyze_with_openai(transcript: str, model: str) -> Dict[str, Any]:
     client = get_openai_client()
     if client is None:
         raise HTTPException(500, "OPENAI_API_KEY が未設定か openai ライブラリがありません。")
-    return client
-
-def analyze_with_openai(transcript: str, model: str) -> Dict[str, Any]:
-    client = get_openai_client_for_chat()
     try:
         resp = client.chat.completions.create(
             model=model,
@@ -220,7 +236,6 @@ def analyze_with_openai(transcript: str, model: str) -> Dict[str, Any]:
         return safe_json_extract(content)
     except Exception as e:
         raise HTTPException(500, f"OpenAI analyze failed: {e}")
-
 
 def safe_json_extract(text: str) -> Dict[str, Any]:
     t = text.strip()
@@ -236,7 +251,6 @@ def safe_json_extract(text: str) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(500, f"Failed to parse JSON from model output: {e}. Raw: {text[:500]}")
 
-
 def analyze(transcript: str) -> tuple[str, Dict[str, Any]]:
     mode = MODEL_MODE.lower()
     if mode == "low":
@@ -245,7 +259,6 @@ def analyze(transcript: str) -> tuple[str, Dict[str, Any]]:
         return "gpt-4o", analyze_with_openai(transcript, model="gpt-4o")
     else:
         raise HTTPException(500, "Invalid USE_MODEL (low/high のみ対応)")
-
 
 def upsert_assessment(
     staff: str,
@@ -272,12 +285,11 @@ def upsert_assessment(
         staff=staff,
         filename=filename,
         transcript=transcript,
-        model_mode=model_mode,
+        model_mode=MODEL_MODE,
         model_name=model_name,
         analysis=analysis,
         created_at=now,
     )
-
 
 def get_assessment(staff: str, filename: str) -> Optional[AnalyzeResponse]:
     q = (
@@ -302,14 +314,12 @@ def get_assessment(staff: str, filename: str) -> Optional[AnalyzeResponse]:
         created_at=row.get("created_at", ""),
     )
 
-
 @app.get("/analysis/{staff}/{filename}", response_model=AnalyzeResponse)
 def fetch_analysis(staff: str, filename: str):
     found = get_assessment(staff, filename)
     if not found:
         raise HTTPException(404, "No analysis found for this file.")
     return found
-
 
 @app.get("/results/{staff}")
 def list_results(staff: str):
@@ -322,13 +332,8 @@ def list_results(staff: str):
     )
     return {"results": getattr(res, "data", [])}
 
-
 @app.post("/analyze/{staff}/{filename}", response_model=AnalyzeResponse)
 def run_analysis(staff: str, filename: str, force: bool = False):
-    """
-    文字起こし→要約・採点を実行。
-    既存結果があれば再利用。force=true で再実行。
-    """
     if not force:
         existing = get_assessment(staff, filename)
         if existing:
