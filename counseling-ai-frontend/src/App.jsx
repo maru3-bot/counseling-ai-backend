@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import axios from "axios";
 
 // ローカル検証時は "http://localhost:8000" に変更してください
-const API_BASE = "https://counseling-ai-backend.onrender.com";
-
+// 先頭付近にある API_BASE を次のように設定
+const API_BASE = "http://localhost:8000"; // または http://127.0.0.1:8000
 function App() {
   const [videos, setVideos] = useState([]);
   const [videoUrls, setVideoUrls] = useState({});
