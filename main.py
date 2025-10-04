@@ -2,6 +2,7 @@ import os
 import mimetypes
 from datetime import datetime
 from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
+from typing import Optional
 
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -28,7 +29,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-def guess_content_type(filename: str, fallback: str | None = None) -> str:
+def guess_content_type(filename: str, fallback: Optional[str] = None) -> str:
     """アップロード時の Content-Type を推定。text/plain を避ける。"""
     ct, _ = mimetypes.guess_type(filename)
     if not ct or ct.startswith("text/"):
@@ -60,7 +61,7 @@ def healthz():
 async def upload_file(staff: str, file: UploadFile = File(...)):
     """
     指定スタッフのフォルダに動画/音声をアップロード
-    ファイル名は `YYYYMMDD-HHMMSS_元ファイル名`
+    ファイル名は `YYYYMMDD-%H%M%S_元ファイル名`
     """
     try:
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -109,3 +110,24 @@ def get_signed_url(staff: str, filename: str, expires_sec: int = 3600):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"signed-url error: {e}")
+
+@app.delete("/delete/{staff}/{filename}")
+def delete_file(staff: str, filename: str):
+    """
+    Supabase Storage から該当ファイルを削除。
+    assessments を使っている場合は、併せてレコードも削除推奨。
+    """
+    try:
+        path = f"{staff}/{filename}"
+        # Storage 削除
+        supabase.storage.from_(SUPABASE_BUCKET).remove([path])
+
+        # もし assessments を運用しているなら、下記を有効化
+        # try:
+        #     supabase.table("assessments").delete().eq("staff", staff).eq("filename", filename).execute()
+        # except Exception:
+        #     pass
+
+        return {"message": "deleted", "path": path}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"delete error: {e}")
