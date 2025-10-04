@@ -1,12 +1,14 @@
 import io
 import json
 import os
+import mimetypes
 from datetime import datetime
 from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, ConfigDict  # ← ConfigDict を追加
+from fastapi.responses import RedirectResponse, PlainTextResponse
+from pydantic import BaseModel, ConfigDict
 from supabase import create_client
 from supabase.client import Client
 
@@ -42,8 +44,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.get("/", include_in_schema=False)
+def root():
+    return RedirectResponse(url="/docs")
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    return PlainTextResponse("", status_code=204)
+
 class AnalyzeResponse(BaseModel):
-    # 「model_」で始まるフィールド名を許可（警告を抑制）
+    # 「model_」で始まるフィールド名の警告を抑制
     model_config = ConfigDict(protected_namespaces=())
 
     staff: str
@@ -53,6 +63,7 @@ class AnalyzeResponse(BaseModel):
     model_name: str
     analysis: Dict[str, Any]
     created_at: str
+
 
 def get_openai_client() -> Optional["OpenAI"]:
     if not OPENAI_API_KEY or OpenAI is None:
@@ -76,13 +87,23 @@ async def upload_file(staff: str, file: UploadFile = File(...)):
         unique_filename = f"{timestamp}_{file.filename}"
         path = f"{staff}/{unique_filename}"
 
+        # Content-Type を推測（例: .mp4 -> video/mp4）
+        guessed, _ = mimetypes.guess_type(file.filename)
+        content_type = guessed or file.content_type or "application/octet-stream"
+
         content = await file.read()
-        supabase.storage.from_(SUPABASE_BUCKET).upload(path, content)
+        # Content-Type と upsert を明示
+        supabase.storage.from_(SUPABASE_BUCKET).upload(
+            path,
+            content,
+            file_options={"contentType": content_type, "upsert": "true"},
+        )
 
         return {
             "message": "アップロード成功",
             "filename": unique_filename,
             "path": path,
+            "content_type": content_type,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -107,6 +128,7 @@ def get_signed_url(staff: str, filename: str, expires_sec: int = 3600):
     """
     try:
         path = f"{staff}/{filename}"
+        # download パラメータは付けない（付けると attachment 扱いになりやすい）
         res = supabase.storage.from_(SUPABASE_BUCKET).create_signed_url(path, expires_sec)
         return {"url": res.get("signedURL") or res.get("signed_url")}
     except Exception as e:
@@ -133,10 +155,8 @@ def transcribe_with_whisper(file_bytes: bytes, filename: str) -> str:
         tr = client.audio.transcriptions.create(
             model="whisper-1",
             file=bio,
-            # language="ja",  # 日本語メインの場合は明示も可（自動検出でもOK）
             response_format="text",
         )
-        # response_format="text" の場合は str を返すことがある
         if isinstance(tr, str):
             return tr
         text = getattr(tr, "text", None)
@@ -179,10 +199,14 @@ ANALYZE_SYSTEM_PROMPT = """あなたはたくさんの顧客を抱える日本�
 }
 """
 
-def analyze_with_openai(transcript: str, model: str) -> Dict[str, Any]:
+def get_openai_client_for_chat() -> "OpenAI":
     client = get_openai_client()
     if client is None:
         raise HTTPException(500, "OPENAI_API_KEY が未設定か openai ライブラリがありません。")
+    return client
+
+def analyze_with_openai(transcript: str, model: str) -> Dict[str, Any]:
+    client = get_openai_client_for_chat()
     try:
         resp = client.chat.completions.create(
             model=model,
@@ -199,9 +223,6 @@ def analyze_with_openai(transcript: str, model: str) -> Dict[str, Any]:
 
 
 def safe_json_extract(text: str) -> Dict[str, Any]:
-    """
-    LLMがコードフェンスや余分なテキストを返してもJSON部分を抽出してパース。
-    """
     t = text.strip()
     if t.startswith("```"):
         t = t.strip("`")
@@ -217,9 +238,6 @@ def safe_json_extract(text: str) -> Dict[str, Any]:
 
 
 def analyze(transcript: str) -> tuple[str, Dict[str, Any]]:
-    """
-    モデルモードに応じて分析を実行。戻り値: (model_name, analysis_json)
-    """
     mode = MODEL_MODE.lower()
     if mode == "low":
         return "gpt-4o-mini", analyze_with_openai(transcript, model="gpt-4o-mini")
