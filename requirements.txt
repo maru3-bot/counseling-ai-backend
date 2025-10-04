@@ -7,3 +7,5 @@ python-dotenv==1.0.1
 python-multipart==0.0.9
 supabase==2.4.5       # ★ 最新安定版に変更
 
+# AI（OpenAIのみ）
+openai==1.51.0
