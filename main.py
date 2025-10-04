@@ -8,10 +8,6 @@ from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from supabase import create_client
-<<<<<<< Updated upstream
-import os
-from datetime import datetime
-=======
 from supabase.client import Client
 
 # OpenAI（ChatGPT API）
@@ -21,7 +17,6 @@ try:
     from openai import OpenAI  # openai>=1.x
 except Exception:
     OpenAI = None  # type: ignore
->>>>>>> Stashed changes
 
 # --- 環境変数から取得 ---
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -41,19 +36,13 @@ app = FastAPI()
 # CORS設定（検証しやすいように * 許可。必要に応じて絞ってください）
 app.add_middleware(
     CORSMiddleware,
-<<<<<<< Updated upstream
-    allow_origins=["http://localhost:5173"],  # Viteフロント
-=======
     allow_origins=["*"],  # 例: ["http://localhost:5173", "https://your-frontend.example.com"]
->>>>>>> Stashed changes
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
-<<<<<<< Updated upstream
-=======
 class AnalyzeResponse(BaseModel):
     staff: str
     filename: str
@@ -75,7 +64,6 @@ def healthz():
     return {"ok": True, "mode": MODEL_MODE}
 
 
->>>>>>> Stashed changes
 @app.post("/upload/{staff}")
 async def upload_file(staff: str, file: UploadFile = File(...)):
     """
@@ -83,21 +71,10 @@ async def upload_file(staff: str, file: UploadFile = File(...)):
     ファイル名は `YYYYMMDD-HHMMSS_元ファイル名`
     """
     try:
-<<<<<<< Updated upstream
-        # ユニークなファイル名を作成
-        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        unique_filename = f"{timestamp}_{file.filename}"
-
-        # staff フォルダ付きのパス
-        path = f"{staff}/{unique_filename}"
-
-        # ファイル内容を読み込んでアップロード
-=======
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         unique_filename = f"{timestamp}_{file.filename}"
         path = f"{staff}/{unique_filename}"
 
->>>>>>> Stashed changes
         content = await file.read()
         supabase.storage.from_(SUPABASE_BUCKET).upload(path, content)
 
@@ -106,8 +83,6 @@ async def upload_file(staff: str, file: UploadFile = File(...)):
             "filename": unique_filename,
             "path": path,
         }
-<<<<<<< Updated upstream
-=======
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -133,7 +108,6 @@ def get_signed_url(staff: str, filename: str, expires_sec: int = 3600):
         path = f"{staff}/{filename}"
         res = supabase.storage.from_(SUPABASE_BUCKET).create_signed_url(path, expires_sec)
         return {"url": res.get("signedURL") or res.get("signed_url")}
->>>>>>> Stashed changes
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

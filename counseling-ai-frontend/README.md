@@ -1,16 +1,60 @@
-# React + Vite
+# counseling-ai-backend
+社内カウンセリング教育アプリケーション
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+## 概要
+- FastAPI + Supabase(Storage/DB)
+- Whisper(OpenAI)で文字起こし
+- GPT-4o/4o-mini で要約・採点（OpenAIのみ）
+- 環境変数 `USE_MODEL` で切替（`low`/`high`）
 
-Currently, two official plugins are available:
+## 環境変数
+```
+# Supabase
+SUPABASE_URL=...
+SUPABASE_SERVICE_ROLE_KEY=...
+SUPABASE_BUCKET=videos
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+# OpenAI
+OPENAI_API_KEY=sk-...
 
-## React Compiler
+# モデル切替
+USE_MODEL=low   # low=gpt-4o-mini, high=gpt-4o
+```
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## 依存関係
+`requirements.txt` を参照（openai を追加）
 
-## Expanding the ESLint configuration
+## DB（Postgres）スキーマ
+SupabaseのSQLエディタで以下を実行してください。
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+```sql
+create table if not exists public.assessments (
+  id uuid primary key default gen_random_uuid(),
+  staff text not null,
+  filename text not null,
+  transcript text,
+  model_mode text,
+  model_name text,
+  analysis jsonb,
+  created_at timestamptz default now(),
+  unique (staff, filename)
+);
+
+create index if not exists idx_assessments_staff_created_at
+on public.assessments (staff, created_at desc);
+```
+
+## API
+- POST `/upload/{staff}`: 動画アップロード（Storage）
+- GET `/list/{staff}`: 動画一覧（Storage）
+- GET `/signed-url/{staff}/{filename}`: 再生用の署名付きURL
+- POST `/analyze/{staff}/{filename}`: 文字起こし→要約・採点を実行（DBに保存、同一ファイルは上書き）
+  - クエリ `force=true` で再分析
+- GET `/analysis/{staff}/{filename}`: 既存の分析結果取得（未実行なら404）
+- GET `/results/{staff}`: スタッフの分析結果一覧
+
+## 動作モード（モデル）
+- `USE_MODEL=low` → OpenAI: `gpt-4o-mini`（コスト安・検証向け）
+- `USE_MODEL=high` → OpenAI: `gpt-4o`（精度重視・本番向け）
+
+文字起こしは `whisper-1` 固定。
