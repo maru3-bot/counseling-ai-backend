@@ -1,3 +1,4 @@
+import os
 from fastapi import Depends, Header
 
 ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "")
@@ -5,7 +6,6 @@ ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "")
 def admin_auth(x_admin_token: str = Header(...)):
     if not ADMIN_TOKEN or x_admin_token != ADMIN_TOKEN:
         raise HTTPException(status_code=401, detail="Invalid admin token")
-import os
 import base64
 import io
 import json
