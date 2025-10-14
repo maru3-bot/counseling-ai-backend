@@ -21,7 +21,11 @@ app = FastAPI()
 # CORS設定（本番では限定してOK）
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=[
+        "http://localhost:5173",                     # 開発環境
+        "http://127.0.0.1:5173",                     # 開発環境
+        "https://counseling-ai-frontend.onrender.com"  # ✅ 本番環境 ←これを追加！
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
