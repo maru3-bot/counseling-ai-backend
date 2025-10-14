@@ -12,6 +12,7 @@ from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
 
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from supabase import create_client
 
 from app_prompt_loader import PromptManager
 
