@@ -12,7 +12,14 @@ from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
 
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from supabase import create_client
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # ← 必要に応じて制限してもOK
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 from app_prompt_loader import PromptManager
 
