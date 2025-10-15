@@ -305,3 +305,57 @@ li.selected .video-item {
   font-size: 1.1rem;
   color: var(--primary-color);
 }
+
+/* 追加するCSS部分 */
+
+/* アップロード関連 */
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.upload-area {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.btn-upload {
+  background-color: var(--success-color);
+  color: white;
+}
+
+.btn-upload:hover {
+  background-color: #0ca678;
+}
+
+.btn-secondary {
+  background-color: var(--secondary-color);
+  color: white;
+}
+
+.btn-secondary:hover {
+  background-color: #6d28d9;
+}
+
+.upload-progress {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 150px;
+}
+
+.progress-bar {
+  flex-grow: 1;
+  height: 8px;
+  background-color: var(--gray-200);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background-color: var(--success-color);
+  transition: width 0.2s;
+}

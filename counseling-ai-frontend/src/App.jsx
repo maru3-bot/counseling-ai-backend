@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import './App.css';
 
 // API URLの設定
@@ -14,6 +14,9 @@ function App() {
   const [selectedVideo, setSelectedVideo] = useState(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [analysis, setAnalysis] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const fileInputRef = useRef(null);
 
   // デバッグ情報
   console.log("環境変数:", {
@@ -61,18 +64,33 @@ function App() {
   // 動画を選択
   const handleVideoSelect = async (video) => {
     setSelectedVideo(video);
-    // 分析結果を取得
+    // 分析結果をリセット
+    setAnalysis(null);
+  };
+
+  // 保存済みの分析結果を取得
+  const fetchSavedAnalysis = async (video) => {
+    if (!video) return;
+    
     try {
+      setLoading(true);
       const response = await fetch(`${BASE_URL}/analysis/staffA/${video.name}`);
       if (response.ok) {
         const data = await response.json();
         setAnalysis(data);
+        return true;
+      } else if (response.status === 404) {
+        setError(`${video.name}の分析結果が見つかりません。新たに分析を実行してください。`);
+        return false;
       } else {
-        setAnalysis(null);
+        throw new Error(`分析結果取得エラー: ${response.status}`);
       }
     } catch (err) {
       console.error('分析取得エラー:', err);
-      setAnalysis(null);
+      setError(`分析結果取得中にエラーが発生しました: ${err.message}`);
+      return false;
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -81,6 +99,8 @@ function App() {
     if (!video) return;
     
     setAnalyzing(true);
+    setError(null);
+    
     try {
       const response = await fetch(`${BASE_URL}/analyze/staffA/${video.name}`, {
         method: 'POST',
@@ -131,10 +151,103 @@ function App() {
     }
   };
 
+  // ファイル選択ダイアログを開く
+  const openFileDialog = () => {
+    fileInputRef.current.click();
+  };
+
+  // 動画をアップロード
+  const uploadVideo = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    // ファイルサイズチェック（50MBまで）
+    const maxSize = 50 * 1024 * 1024; // 50MB
+    if (file.size > maxSize) {
+      setError(`ファイルサイズが大きすぎます（最大50MB）: ${(file.size / (1024 * 1024)).toFixed(1)}MB`);
+      return;
+    }
+    
+    setUploading(true);
+    setUploadProgress(0);
+    setError(null);
+    
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      // アップロード（進捗監視）
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `${BASE_URL}/upload/staffA`, true);
+      
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) {
+          const progress = Math.round((event.loaded / event.total) * 100);
+          setUploadProgress(progress);
+        }
+      };
+      
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          // 成功時
+          fetchVideos(); // リスト更新
+          setUploadProgress(100);
+          setTimeout(() => {
+            setUploading(false);
+            setUploadProgress(0);
+          }, 1000);
+        } else {
+          // エラー時
+          throw new Error(`アップロードエラー: ${xhr.statusText}`);
+        }
+      };
+      
+      xhr.onerror = () => {
+        throw new Error('ネットワークエラーが発生しました');
+      };
+      
+      xhr.send(formData);
+    } catch (err) {
+      console.error('アップロードエラー:', err);
+      setError('アップロード中にエラーが発生しました: ' + err.message);
+      setUploading(false);
+    }
+  };
+
   return (
     <div className="App">
       <header className="app-header">
         <h1>スタッフAの動画リスト</h1>
+        
+        {/* アップロードボタン */}
+        <div className="upload-area">
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={uploadVideo}
+            accept="video/*"
+            style={{ display: 'none' }}
+          />
+          <button
+            className="btn btn-upload"
+            onClick={openFileDialog}
+            disabled={uploading}
+          >
+            動画をアップロード
+          </button>
+          
+          {uploading && (
+            <div className="upload-progress">
+              <div className="progress-bar">
+                <div
+                  className="progress-fill"
+                  style={{ width: `${uploadProgress}%` }}
+                ></div>
+              </div>
+              <span>{uploadProgress}%</span>
+            </div>
+          )}
+        </div>
       </header>
       
       {error && <div className="error-banner">{error}</div>}
@@ -217,7 +330,15 @@ function App() {
                 onClick={() => analyzeVideo(selectedVideo)}
                 disabled={analyzing}
               >
-                {analyzing ? '分析中...' : '分析する'}
+                {analyzing ? '分析中...' : '新規分析'}
+              </button>
+              {/* 保存済み分析結果呼び出しボタン（新規追加） */}
+              <button 
+                className="btn btn-secondary"
+                onClick={() => fetchSavedAnalysis(selectedVideo)}
+                disabled={analyzing}
+              >
+                保存済み分析を表示
               </button>
             </div>
             
