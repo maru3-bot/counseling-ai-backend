@@ -117,19 +117,25 @@ async def upload_file(staff_id: str, file: UploadFile = File(...)):
         print(f"アップロード: {file_path}, サイズ: {len(contents)} bytes, タイプ: {content_type}")
         
         # MIMEタイプを明示的に指定してアップロード
+        # upsert:Trueは削除し、file_optionsを修正
         file_options = {
-            "contentType": content_type,
-            "cacheControl": "3600",
-            "upsert": True
+            "content-type": content_type,  # ハイフンに変更
+            "cache-control": "3600"  # ハイフンに変更
         }
         
+        # 既存のファイルがあれば削除してからアップロード
+        try:
+            supabase.storage.from_(SUPABASE_BUCKET).remove([file_path])
+        except Exception:
+            pass  # ファイルが存在しない場合も続行
+            
         supabase.storage.from_(SUPABASE_BUCKET).upload(file_path, contents, file_options)
         return {"ok": True, "path": file_path, "type": content_type}
     except Exception as e:
         error_msg = f"アップロードエラー: {str(e)}"
         print(error_msg)
         raise HTTPException(status_code=500, detail=error_msg)
-
+    
 # ===== 署名付きURLの取得 =====
 @app.get("/signed-url/{staff_id}/{filename}")
 def get_signed_url(staff_id: str, filename: str):
