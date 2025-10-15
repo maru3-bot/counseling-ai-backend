@@ -1,36 +1,299 @@
-/* App-wide layout */
+/* 基本レイアウト */
+:root {
+  --primary-color: #4f46e5;
+  --secondary-color: #7c3aed;
+  --success-color: #10b981;
+  --danger-color: #ef4444;
+  --warning-color: #f59e0b;
+  --gray-100: #f3f4f6;
+  --gray-200: #e5e7eb;
+  --gray-300: #d1d5db;
+  --gray-500: #6b7280;
+  --gray-700: #374151;
+  --gray-900: #111827;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --radius: 8px;
+}
+
+/* アプリ全体のレイアウト */
 #root {
   max-width: 1280px;
   margin: 0 auto;
   padding: 2rem;
-  text-align: left; /* ← 中央寄せをやめて左寄せに */
-}
-/* 既存のサンプルスタイルはそのまま */
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
-}
-.logo:hover { filter: drop-shadow(0 0 2em #646cffaa); }
-.logo.react:hover { filter: drop-shadow(0 0 2em #61dafbaa); }
-
-@keyframes logo-spin {
-  from { transform: rotate(0deg); }
-  to   { transform: rotate(360deg); }
-}
-@media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo { animation: logo-spin infinite 20s linear; }
+  text-align: left;
 }
 
-.card { padding: 2em; }
-.read-the-docs { color: #888; }
+.App {
+  width: 100%;
+  color: var(--gray-900);
+}
 
-/* Fix for white text on white background in dark mode */
-.bg-white,
-.analysis-card {
+/* ヘッダー */
+.app-header {
+  margin-bottom: 2rem;
+  border-bottom: 1px solid var(--gray-200);
+  padding-bottom: 1rem;
+}
+
+.app-header h1 {
+  margin: 0;
+  font-weight: 700;
+  color: var(--primary-color);
+}
+
+/* エラーバナー */
+.error-banner {
+  background-color: rgba(239, 68, 68, 0.1);
+  color: var(--danger-color);
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius);
+  margin-bottom: 1.5rem;
+  border-left: 4px solid var(--danger-color);
+}
+
+/* コンテナレイアウト */
+.container {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: 2rem;
+}
+
+@media (max-width: 768px) {
+  .container {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* セクションヘッダー */
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.section-header h2 {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
+/* ローダー */
+.loader {
+  color: var(--gray-500);
+  font-size: 0.875rem;
+}
+
+/* 動画リスト */
+.video-list {
   background-color: white;
-  color: #213547;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  padding: 1.5rem;
+  border: 1px solid var(--gray-200);
+}
+
+.videos {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+.video-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem;
+  border-radius: var(--radius);
+  background-color: white;
+  border: 1px solid var(--gray-200);
+  margin-bottom: 0.5rem;
+  transition: all 0.2s;
+}
+
+li.selected .video-item {
+  border-color: var(--primary-color);
+  background-color: rgba(79, 70, 229, 0.05);
+}
+
+.video-item:hover {
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+}
+
+.video-name {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.video-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.empty-message {
+  color: var(--gray-500);
+  text-align: center;
+  padding: 2rem 0;
+}
+
+/* 動画詳細 */
+.video-details {
+  background-color: white;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  padding: 1.5rem;
+  border: 1px solid var(--gray-200);
+}
+
+.empty-selection {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--gray-500);
+  height: 200px;
+  font-style: italic;
+}
+
+/* ボタン */
+.btn {
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  padding: 0.6em 1em;
+  font-size: 0.9em;
+  font-weight: 500;
+  font-family: inherit;
+  background-color: var(--gray-200);
+  color: var(--gray-700);
+  cursor: pointer;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+}
+
+.btn:hover {
+  background-color: var(--gray-300);
+  box-shadow: var(--shadow-sm);
+}
+
+.btn-primary {
+  background-color: var(--primary-color);
+  color: white;
+}
+
+.btn-primary:hover {
+  background-color: var(--secondary-color);
+}
+
+.btn-success {
+  background-color: var(--success-color);
+  color: white;
+}
+
+.btn-success:hover {
+  background-color: #0ca678;
+}
+
+.btn-play {
+  background-color: var(--primary-color);
+  color: white;
+  font-size: 0.8em;
+}
+
+.btn-delete {
+  background-color: var(--danger-color);
+  color: white;
+  font-size: 0.8em;
+}
+
+.btn-disabled {
+  background-color: var(--gray-300);
+  color: var(--gray-500);
+  cursor: not-allowed;
+}
+
+.btn-disabled:hover {
+  box-shadow: none;
+}
+
+.actions {
+  margin-bottom: 1.5rem;
+  display: flex;
+  gap: 1rem;
+}
+
+/* 分析結果カード */
+.analysis-card {
+  margin-top: 1.5rem;
+  background-color: white;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  border: 1px solid var(--gray-200);
   padding: 1rem;
-  border-radius: 8px;
+}
+
+.analysis-card h3 {
+  font-size: 1.25rem;
+  color: var(--primary-color);
+  border-bottom: 1px solid var(--gray-200);
+  padding-bottom: 0.5rem;
+  margin-top: 0;
+}
+
+.analysis-section {
+  margin-bottom: 1.5rem;
+}
+
+.analysis-section h4 {
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+  color: var(--gray-700);
+}
+
+.analysis-list {
+  padding-left: 1.5rem;
+  margin-top: 0.5rem;
+}
+
+.analysis-list li {
+  margin-bottom: 0.5rem;
+}
+
+.risks h4 {
+  color: var(--danger-color);
+}
+
+.risks .analysis-list li {
+  color: var(--danger-color);
+}
+
+/* スコア表示 */
+.scores-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.score-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  background-color: var(--gray-100);
+  border-radius: var(--radius);
+}
+
+.score-label {
+  font-weight: 500;
+}
+
+.score-value {
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: var(--primary-color);
 }
