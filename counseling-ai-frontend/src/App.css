@@ -20,8 +20,9 @@
 /* アプリ全体のレイアウト */
 #root {
   max-width: 1280px;
+  width: 100%;
   margin: 0 auto;
-  padding: 2rem;
+  padding: 1rem;
   text-align: left;
 }
 
@@ -32,15 +33,22 @@
 
 /* ヘッダー */
 .app-header {
-  margin-bottom: 2rem;
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
   border-bottom: 1px solid var(--gray-200);
   padding-bottom: 1rem;
+  flex-wrap: wrap;
+  gap: 1rem;
 }
 
 .app-header h1 {
   margin: 0;
   font-weight: 700;
   color: var(--primary-color);
+  font-size: 1.8rem;
 }
 
 /* エラーバナー */
@@ -57,12 +65,54 @@
 .container {
   display: grid;
   grid-template-columns: 1fr 2fr;
-  gap: 2rem;
+  gap: 1.5rem;
 }
 
+/* スマホ対応: 画面が小さい場合は縦に並べる */
 @media (max-width: 768px) {
   .container {
     grid-template-columns: 1fr;
+  }
+  
+  .app-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  
+  .upload-area {
+    width: 100%;
+  }
+  
+  .video-actions {
+    flex-direction: column;
+    width: 100%;
+  }
+  
+  .video-actions .btn {
+    width: 100%;
+    margin-top: 0.25rem;
+  }
+  
+  .actions {
+    flex-direction: column;
+  }
+  
+  .actions .btn {
+    width: 100%;
+    margin-top: 0.25rem;
+  }
+  
+  .scores-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .video-item {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  
+  .video-name {
+    margin-bottom: 0.5rem;
   }
 }
 
@@ -135,7 +185,6 @@ li.selected .video-item {
 .video-actions {
   display: flex;
   gap: 0.5rem;
-  flex-wrap: wrap;
 }
 
 .empty-message {
@@ -162,6 +211,21 @@ li.selected .video-item {
   font-style: italic;
 }
 
+/* インラインビデオプレーヤー */
+.video-player-container {
+  margin: 1rem 0;
+  width: 100%;
+  border-radius: var(--radius);
+  overflow: hidden;
+  background-color: #000;
+}
+
+.video-player {
+  width: 100%;
+  max-height: 400px;
+  display: block;
+}
+
 /* ボタン */
 .btn {
   border-radius: var(--radius);
@@ -176,6 +240,7 @@ li.selected .video-item {
   transition: all 0.2s;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
 }
 
 .btn:hover {
@@ -204,19 +269,25 @@ li.selected .video-item {
 .btn-play {
   background-color: var(--primary-color);
   color: white;
-  font-size: 0.8em;
 }
 
 .btn-analyze {
   background-color: var(--analyze-color);
   color: white;
-  font-size: 0.8em;
 }
 
 .btn-delete {
   background-color: var(--danger-color);
   color: white;
-  font-size: 0.8em;
+}
+
+.btn-secondary {
+  background-color: var(--secondary-color);
+  color: white;
+}
+
+.btn-secondary:hover {
+  background-color: #6d28d9;
 }
 
 .btn-disabled {
@@ -230,9 +301,48 @@ li.selected .video-item {
 }
 
 .actions {
-  margin-bottom: 1.5rem;
+  margin: 1rem 0;
   display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+/* アップロード関連 */
+.upload-area {
+  display: flex;
+  align-items: center;
   gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.btn-upload {
+  background-color: var(--success-color);
+  color: white;
+}
+
+.btn-upload:hover {
+  background-color: #0ca678;
+}
+
+.upload-progress {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 150px;
+}
+
+.progress-bar {
+  flex-grow: 1;
+  height: 8px;
+  background-color: var(--gray-200);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background-color: var(--success-color);
+  transition: width 0.2s;
 }
 
 /* 分析結果カード */
@@ -304,58 +414,4 @@ li.selected .video-item {
   font-weight: 700;
   font-size: 1.1rem;
   color: var(--primary-color);
-}
-
-/* 追加するCSS部分 */
-
-/* アップロード関連 */
-.app-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.upload-area {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
-
-.btn-upload {
-  background-color: var(--success-color);
-  color: white;
-}
-
-.btn-upload:hover {
-  background-color: #0ca678;
-}
-
-.btn-secondary {
-  background-color: var(--secondary-color);
-  color: white;
-}
-
-.btn-secondary:hover {
-  background-color: #6d28d9;
-}
-
-.upload-progress {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  min-width: 150px;
-}
-
-.progress-bar {
-  flex-grow: 1;
-  height: 8px;
-  background-color: var(--gray-200);
-  border-radius: 4px;
-  overflow: hidden;
-}
-
-.progress-fill {
-  height: 100%;
-  background-color: var(--success-color);
-  transition: width 0.2s;
 }

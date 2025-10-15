@@ -12,11 +12,13 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedVideo, setSelectedVideo] = useState(null);
+  const [videoUrl, setVideoUrl] = useState(null); // 動画URLを保持
   const [analyzing, setAnalyzing] = useState(false);
   const [analysis, setAnalysis] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const fileInputRef = useRef(null);
+  const videoPlayerRef = useRef(null);
 
   // デバッグ情報
   console.log("環境変数:", {
@@ -64,8 +66,55 @@ function App() {
   // 動画を選択
   const handleVideoSelect = async (video) => {
     setSelectedVideo(video);
+    // 選択時には動画URLをリセット（再生ボタンを押したときにだけ取得する）
+    setVideoUrl(null);
     // 分析結果をリセット
     setAnalysis(null);
+  };
+  
+  // 動画を再生（ページ内で再生）- 改良版
+  const playVideo = async (video) => {
+    if (!video) return;
+    
+    if (!videoUrl) {
+      // URLがなければ取得する
+      setLoading(true);
+      const url = await getSignedUrl(video.name);
+      setLoading(false);
+      
+      if (url) {
+        console.log("取得した動画URL:", url);
+        setVideoUrl(url);
+        
+        // URLが設定されたらビデオ要素にフォーカスして自動再生
+        setTimeout(() => {
+          if (videoPlayerRef.current) {
+            videoPlayerRef.current.scrollIntoView({ behavior: 'smooth' });
+            // videoタグの型を明示的に設定
+            videoPlayerRef.current.setAttribute('type', 'video/mp4');
+            videoPlayerRef.current.play().catch(e => {
+              console.error('自動再生できませんでした:', e);
+              setError('動画の自動再生に失敗しました。再生ボタンをクリックしてください。');
+            });
+          }
+        }, 300);
+      } else {
+        setError('動画URLの取得に失敗しました');
+      }
+    } else {
+      // すでにURLがあれば、ビデオ要素にフォーカスして再生/一時停止を切り替え
+      if (videoPlayerRef.current) {
+        videoPlayerRef.current.scrollIntoView({ behavior: 'smooth' });
+        if (videoPlayerRef.current.paused) {
+          videoPlayerRef.current.play().catch(e => {
+            console.error('再生エラー:', e);
+            setError('動画の再生に失敗しました。');
+          });
+        } else {
+          videoPlayerRef.current.pause();
+        }
+      }
+    }
   };
 
   // 保存済みの分析結果を取得
@@ -133,6 +182,7 @@ function App() {
       fetchVideos();
       if (selectedVideo?.name === video.name) {
         setSelectedVideo(null);
+        setVideoUrl(null);
         setAnalysis(null);
       }
     } catch (err) {
@@ -141,22 +191,32 @@ function App() {
     }
   };
 
-  // 動画再生用のURLを取得
-  const playVideo = async (video) => {
-    const url = await getSignedUrl(video.name);
-    if (url) {
-      window.open(url, '_blank');
-    } else {
-      setError('動画URLの取得に失敗しました');
-    }
-  };
-
   // ファイル選択ダイアログを開く
   const openFileDialog = () => {
     fileInputRef.current.click();
   };
+  
+  // ファイル名に日付時刻を追加する関数
+  const addTimestampToFilename = (filename) => {
+    const now = new Date();
+    const timestamp = now.toISOString()
+      .replace(/[-:]/g, '')
+      .replace('T', '_')
+      .replace(/\..+/, '');
+    
+    // ファイル名と拡張子を分ける
+    const lastDotIndex = filename.lastIndexOf('.');
+    if (lastDotIndex === -1) {
+      // 拡張子がない場合
+      return `${filename}_${timestamp}`;
+    } else {
+      const name = filename.substring(0, lastDotIndex);
+      const ext = filename.substring(lastDotIndex);
+      return `${name}_${timestamp}${ext}`;
+    }
+  };
 
-  // 動画をアップロード
+  // 動画をアップロード（修正版）
   const uploadVideo = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
@@ -168,13 +228,24 @@ function App() {
       return;
     }
     
+    // ファイルタイプのチェック - 明示的に動画タイプを確認
+    if (!file.type.startsWith('video/')) {
+      setError(`サポートされていないファイルタイプです: ${file.type}。動画ファイルをアップロードしてください。`);
+      return;
+    }
+    
     setUploading(true);
     setUploadProgress(0);
     setError(null);
     
     try {
+      // ファイル名に日時を追加（ファイル重複防止）
+      const newFileName = addTimestampToFilename(file.name);
+      const renamedFile = new File([file], newFileName, { type: file.type });
+      
+      // 直接Fetchを使用する代わりにFormDataをセットアップ
       const formData = new FormData();
-      formData.append('file', file);
+      formData.append('file', renamedFile);
       
       // アップロード（進捗監視）
       const xhr = new XMLHttpRequest();
@@ -278,6 +349,7 @@ function App() {
                         className="btn btn-play" 
                         onClick={(e) => {
                           e.stopPropagation();
+                          handleVideoSelect(video);
                           playVideo(video);
                         }}
                         title="動画を再生"
@@ -320,10 +392,34 @@ function App() {
               <h2>選択した動画: {selectedVideo.name}</h2>
             </div>
             
+            {/* インラインビデオプレーヤー */}
+            {videoUrl && (
+              <div className="video-player-container">
+                <video 
+                  ref={videoPlayerRef}
+                  className="video-player"
+                  controls
+                  src={videoUrl}
+                  poster="/zazalogo.png"
+                  type="video/mp4"
+                  playsInline
+                  onError={(e) => {
+                    console.error("動画読み込みエラー:", e);
+                    setError(`動画の読み込みに失敗しました。フォーマットが正しくない可能性があります。`);
+                  }}
+                >
+                  お使いのブラウザは動画再生に対応していません
+                </video>
+              </div>
+            )}
+            
             <div className="actions">
               {/* 詳細画面のメイン操作ボタン */}
-              <button className="btn btn-primary" onClick={() => playVideo(selectedVideo)}>
-                動画を再生
+              <button 
+                className="btn btn-primary" 
+                onClick={() => playVideo(selectedVideo)}
+              >
+                {videoUrl ? '再生/一時停止' : '動画を再生'}
               </button>
               <button 
                 className={`btn ${analyzing ? 'btn-disabled' : 'btn-success'}`}
@@ -336,7 +432,7 @@ function App() {
               <button 
                 className="btn btn-secondary"
                 onClick={() => fetchSavedAnalysis(selectedVideo)}
-                disabled={analyzing}
+                disabled={analyzing || loading}
               >
                 保存済み分析を表示
               </button>

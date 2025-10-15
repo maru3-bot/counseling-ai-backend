@@ -3,7 +3,7 @@ import json
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from supabase import create_client, Client
-from app_prompt_loader import PromptManager  # プロンプトローダーをインポート
+from app_prompt_loader import PromptManager
 
 # ===== 環境変数 =====
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -104,16 +104,33 @@ async def upload_file(staff_id: str, file: UploadFile = File(...)):
     
     try:
         contents = await file.read()
-        file_path = f"{staff_id}/{file.filename}"
-        print(f"アップロード: {file_path}, サイズ: {len(contents)} bytes")
-        supabase.storage.from_(SUPABASE_BUCKET).upload(file_path, contents)
-        return {"ok": True, "path": file_path}
+        # ファイル名からMIMEタイプを確認
+        filename = file.filename
+        content_type = file.content_type or "application/octet-stream"
+        
+        # 動画ファイルの場合、MIMEタイプを明示的に設定
+        if filename.lower().endswith(('.mp4', '.mov', '.avi', '.wmv', '.mkv')):
+            if 'video/' not in content_type:
+                content_type = "video/mp4" if filename.lower().endswith('.mp4') else "video/quicktime"
+        
+        file_path = f"{staff_id}/{filename}"
+        print(f"アップロード: {file_path}, サイズ: {len(contents)} bytes, タイプ: {content_type}")
+        
+        # MIMEタイプを明示的に指定してアップロード
+        file_options = {
+            "contentType": content_type,
+            "cacheControl": "3600",
+            "upsert": True
+        }
+        
+        supabase.storage.from_(SUPABASE_BUCKET).upload(file_path, contents, file_options)
+        return {"ok": True, "path": file_path, "type": content_type}
     except Exception as e:
         error_msg = f"アップロードエラー: {str(e)}"
         print(error_msg)
         raise HTTPException(status_code=500, detail=error_msg)
 
-# ===== 署名付きURLの取得（追加） =====
+# ===== 署名付きURLの取得 =====
 @app.get("/signed-url/{staff_id}/{filename}")
 def get_signed_url(staff_id: str, filename: str):
     if supabase_error:
@@ -121,15 +138,40 @@ def get_signed_url(staff_id: str, filename: str):
     
     try:
         file_path = f"{staff_id}/{filename}"
-        # 署名付きURLを1時間有効で生成
-        signed_url = supabase.storage.from_(SUPABASE_BUCKET).create_signed_url(file_path, 3600)
+        
+        # ファイルのメタデータを取得（存在確認のため）
+        try:
+            file_info = supabase.storage.from_(SUPABASE_BUCKET).get_public_url(file_path)
+        except Exception as e:
+            print(f"ファイル情報取得エラー: {e}")
+            raise HTTPException(status_code=404, detail=f"ファイル {filename} が見つかりません")
+        
+        # 署名付きURLを1時間有効で生成（動画再生用）
+        # トランスフォームを使って適切なContent-Typeを強制する
+        transform = {
+            "format": "mp4",  # 強制的にmp4として扱う
+        }
+        
+        try:
+            signed_url = supabase.storage.from_(SUPABASE_BUCKET).create_signed_url(
+                file_path, 
+                3600,  # 1時間有効
+                transform=transform,
+            )
+        except Exception as e:
+            # トランスフォームが使えない場合は通常のURLを使用
+            signed_url = supabase.storage.from_(SUPABASE_BUCKET).create_signed_url(
+                file_path, 
+                3600,  # 1時間有効
+            )
+        
         return {"url": signed_url["signedURL"]}
     except Exception as e:
         error_msg = f"署名付きURL取得エラー: {str(e)}"
         print(error_msg)
         raise HTTPException(status_code=500, detail=error_msg)
 
-# ===== ファイル削除（追加） =====
+# ===== ファイル削除 =====
 @app.delete("/delete/{staff_id}/{filename}")
 def delete_file(staff_id: str, filename: str):
     if supabase_error:
@@ -152,7 +194,7 @@ def delete_file(staff_id: str, filename: str):
         print(error_msg)
         raise HTTPException(status_code=500, detail=error_msg)
 
-# ===== 分析実行（追加） =====
+# ===== 分析実行 =====
 @app.post("/analyze/{staff_id}/{filename}")
 async def analyze_file(staff_id: str, filename: str, force: bool = False):
     if supabase_error:
@@ -174,9 +216,9 @@ async def analyze_file(staff_id: str, filename: str, force: bool = False):
                 response = supabase.table("assessments").select("*").eq("path", file_path).execute()
                 if response.data and len(response.data) > 0:
                     return response.data[0]["analysis"]
-            except Exception:
+            except Exception as e:
+                print(f"既存の分析結果取得エラー: {e}")
                 # テーブルがない場合は続行
-                pass
         
         # 署名付きURLを取得
         signed_url = supabase.storage.from_(SUPABASE_BUCKET).create_signed_url(file_path, 3600)
@@ -227,7 +269,7 @@ async def analyze_file(staff_id: str, filename: str, force: bool = False):
         print(error_msg)
         raise HTTPException(status_code=500, detail=error_msg)
 
-# ===== 分析結果取得（追加） =====
+# ===== 分析結果取得 =====
 @app.get("/analysis/{staff_id}/{filename}")
 def get_analysis(staff_id: str, filename: str):
     if supabase_error:
@@ -253,7 +295,7 @@ def get_analysis(staff_id: str, filename: str):
         print(error_msg)
         raise HTTPException(status_code=500, detail=error_msg)
 
-# ===== スタッフの全分析結果取得（追加） =====
+# ===== スタッフの全分析結果取得 =====
 @app.get("/results/{staff_id}")
 def get_staff_results(staff_id: str):
     if supabase_error:
@@ -269,6 +311,36 @@ def get_staff_results(staff_id: str):
             return []
     except Exception as e:
         error_msg = f"結果一覧取得エラー: {str(e)}"
+        print(error_msg)
+        raise HTTPException(status_code=500, detail=error_msg)
+
+# ===== MIMEタイプ修正 =====
+@app.post("/fix-mime-type/{staff_id}/{filename}")
+async def fix_mime_type(staff_id: str, filename: str):
+    if supabase_error:
+        raise HTTPException(status_code=500, detail=f"Supabase接続エラー: {supabase_error}")
+    
+    try:
+        file_path = f"{staff_id}/{filename}"
+        
+        # ファイルをダウンロード
+        response = supabase.storage.from_(SUPABASE_BUCKET).download(file_path)
+        contents = response
+        
+        # 一旦削除
+        supabase.storage.from_(SUPABASE_BUCKET).remove([file_path])
+        
+        # 正しいMIMEタイプで再アップロード
+        file_options = {
+            "contentType": "video/mp4",
+            "cacheControl": "3600",
+            "upsert": True
+        }
+        
+        supabase.storage.from_(SUPABASE_BUCKET).upload(file_path, contents, file_options)
+        return {"ok": True, "message": f"ファイル {filename} のMIMEタイプを修正しました"}
+    except Exception as e:
+        error_msg = f"MIMEタイプ修正エラー: {str(e)}"
         print(error_msg)
         raise HTTPException(status_code=500, detail=error_msg)
 
