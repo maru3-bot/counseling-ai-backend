@@ -104,7 +104,6 @@ async def upload_file(staff_id: str, file: UploadFile = File(...)):
     
     try:
         contents = await file.read()
-        # ファイル名からMIMEタイプを確認
         filename = file.filename
         content_type = file.content_type or "application/octet-stream"
         
@@ -116,11 +115,10 @@ async def upload_file(staff_id: str, file: UploadFile = File(...)):
         file_path = f"{staff_id}/{filename}"
         print(f"アップロード: {file_path}, サイズ: {len(contents)} bytes, タイプ: {content_type}")
         
-        # MIMEタイプを明示的に指定してアップロード
-        # upsert:Trueは削除し、file_optionsを修正
+        # 修正: ハイフン形式のキーを使用し、upsertパラメータを削除
         file_options = {
-            "content-type": content_type,  # ハイフンに変更
-            "cache-control": "3600"  # ハイフンに変更
+            "content-type": content_type,
+            "cache-control": "3600"
         }
         
         # 既存のファイルがあれば削除してからアップロード
@@ -135,7 +133,7 @@ async def upload_file(staff_id: str, file: UploadFile = File(...)):
         error_msg = f"アップロードエラー: {str(e)}"
         print(error_msg)
         raise HTTPException(status_code=500, detail=error_msg)
-    
+        
 # ===== 署名付きURLの取得 =====
 @app.get("/signed-url/{staff_id}/{filename}")
 def get_signed_url(staff_id: str, filename: str):
@@ -211,6 +209,9 @@ async def analyze_file(staff_id: str, filename: str, force: bool = False):
     
     try:
         import openai
+        import tempfile
+        import subprocess
+        import os
         from datetime import datetime
         
         file_path = f"{staff_id}/{filename}"
@@ -218,108 +219,130 @@ async def analyze_file(staff_id: str, filename: str, force: bool = False):
         # 既存の分析結果をチェック（forceがFalseの場合は既存の結果を返す）
         if not force:
             try:
-                # Supabaseから既存の分析結果を取得
-                response = supabase.table("assessments").select("*").eq("path", file_path).execute()
+                # テーブル構造に合わせてクエリを修正
+                response = supabase.table("assessments").select("*").eq("staff", staff_id).eq("filename", filename).execute()
                 if response.data and len(response.data) > 0:
+                    print(f"既存の分析結果を返します: {filename}")
                     return response.data[0]["analysis"]
             except Exception as e:
                 print(f"既存の分析結果取得エラー: {e}")
-                # テーブルがない場合は続行
+                # 続行
         
         # 署名付きURLを取得
         signed_url = supabase.storage.from_(SUPABASE_BUCKET).create_signed_url(file_path, 3600)
         video_url = signed_url["signedURL"]
         
-        # OpenAI APIを使用して分析（実際の実装は省略）
-        # 本来はWhisperで文字起こしをしてGPTで分析するべきですが、簡易版として
-        openai.api_key = OPENAI_API_KEY
-        client = openai.OpenAI(api_key=OPENAI_API_KEY)
+        print(f"動画URL: {video_url}")
+        print("音声抽出を開始します...")
         
-        # システムプロンプトの取得
-        system_prompt = prompt_manager.get_analyze_prompt()
+        # 1. 動画をダウンロードして音声を抽出
+        with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as video_file:
+            video_path = video_file.name
+            
+            # ダウンロード
+            import requests
+            response = requests.get(video_url, stream=True)
+            if response.status_code != 200:
+                raise HTTPException(status_code=500, detail="動画のダウンロードに失敗しました")
+            
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    video_file.write(chunk)
         
-        # 分析結果のモックアップ
-        # 実際の実装ではWhisper APIで文字起こしを行い、その結果をGPTに渡します
-        mock_analysis = {
-            "summary": f"{filename}の分析結果です。実際の実装ではWhisperで文字起こしを行い、その内容をGPTに分析させます。",
-            "strengths": ["顧客の要望をよく聞いている", "適切な提案をしている", "専門用語を分かりやすく説明している"],
-            "improvements": ["もう少し具体的な例を出すと良い", "選択肢を増やすと良い", "フォローアップの提案ができると良い"],
-            "risk_flags": [],
-            "scores": {"empathy": 4, "active_listening": 4, "clarity": 3, "problem_solving": 3},
-            "overall_comment": "全体として良好なカウンセリングですが、より具体的な選択肢の提示とフォローアップの計画があるとさらに良くなります。"
-        }
+        # 音声抽出（一時ファイルに保存）
+        with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as audio_file:
+            audio_path = audio_file.name
         
-        # 実際の実装では以下のように行う
-        # 1. Whisper APIで音声を文字起こし
-        # 2. GPT APIで文字起こしを分析
-        # 3. 結果を整形
-        
-        # 分析結果をSupabaseに保存
         try:
-            # assessmentsテーブルがない場合は作成される
-            data = {
-                "path": file_path,
-                "filename": filename,
-                "staff_id": staff_id,
-                "analysis": mock_analysis,
-                "created_at": datetime.now().isoformat()
-            }
-            supabase.table("assessments").upsert(data).execute()
-        except Exception as e:
-            print(f"分析結果保存エラー: {e}")
-            # 保存に失敗しても分析結果は返す
-        
-        return mock_analysis
+            # FFmpegがインストールされていることを前提
+            # FFmpegがない場合はPythonのライブラリで代替可能
+            command = f"ffmpeg -i {video_path} -q:a 0 -map a {audio_path} -y"
+            process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            stdout, stderr = process.communicate()
+            
+            if process.returncode != 0:
+                print(f"FFmpegエラー: {stderr.decode()}")
+                raise HTTPException(status_code=500, detail="音声の抽出に失敗しました")
+            
+            print("音声抽出完了。Whisperで文字起こしを開始します...")
+            
+            # 2. OpenAI Whisperを使用して文字起こし
+            client = openai.OpenAI(api_key=OPENAI_API_KEY)
+            
+            # 音声ファイルが大きい場合は、分割して処理するか、圧縮するなどの対策が必要
+            with open(audio_path, "rb") as audio:
+                transcript_response = client.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=audio,
+                    language="ja",
+                    response_format="text"
+                )
+            
+            # 文字起こし結果
+            transcript = transcript_response
+            print(f"文字起こし完了: {len(transcript)} 文字")
+            
+            # テキストが長すぎる場合は分割して処理する必要がある
+            MAX_TOKENS = 4000  # GPT-4の制限に合わせて調整
+            
+            # 3. GPT-4を使用して分析
+            print("GPT-4で分析を開始します...")
+            
+            # システムプロンプトの取得
+            system_prompt = prompt_manager.get_analyze_prompt()
+            
+            completion = client.chat.completions.create(
+                model="gpt-4-turbo",  # または "gpt-4" など利用可能なモデル
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": transcript}
+                ],
+                response_format={ "type": "json_object" },
+                temperature=0.3
+            )
+            
+            # 分析結果
+            analysis_text = completion.choices[0].message.content
+            analysis = json.loads(analysis_text)
+            
+            print("分析完了")
+            
+            # 4. 分析結果をSupabaseに保存
+            try:
+                # 実際のテーブル構造に合わせてデータを整形
+                data = {
+                    "staff": staff_id,
+                    "filename": filename,
+                    "transcript": transcript,
+                    "model_mode": "gpt-4-turbo",
+                    "model_name": "GPT-4 Turbo",
+                    "analysis": analysis,
+                    "created_at": datetime.now().isoformat()
+                }
+                
+                # 挿入前に同じエントリがないか確認して削除
+                supabase.table("assessments").delete().eq("staff", staff_id).eq("filename", filename).execute()
+                
+                # 新しいデータを挿入
+                supabase.table("assessments").insert(data).execute()
+                print("分析結果をデータベースに保存しました")
+            except Exception as e:
+                print(f"分析結果保存エラー: {e}")
+                # 保存に失敗しても分析結果は返す
+            
+            return analysis
+        finally:
+            # 一時ファイルの削除
+            try:
+                os.unlink(video_path)
+                os.unlink(audio_path)
+            except Exception as e:
+                print(f"一時ファイル削除エラー: {e}")
     except Exception as e:
         error_msg = f"分析エラー: {str(e)}"
         print(error_msg)
         raise HTTPException(status_code=500, detail=error_msg)
-
-# ===== 分析結果取得 =====
-@app.get("/analysis/{staff_id}/{filename}")
-def get_analysis(staff_id: str, filename: str):
-    if supabase_error:
-        raise HTTPException(status_code=500, detail=f"Supabase接続エラー: {supabase_error}")
     
-    try:
-        file_path = f"{staff_id}/{filename}"
-        
-        # Supabaseから分析結果を取得
-        try:
-            response = supabase.table("assessments").select("*").eq("path", file_path).execute()
-            if response.data and len(response.data) > 0:
-                return response.data[0]["analysis"]
-        except Exception as e:
-            print(f"分析結果取得エラー: {e}")
-            
-        # 分析結果がない場合は404
-        raise HTTPException(status_code=404, detail=f"{filename}の分析結果が見つかりません")
-    except HTTPException:
-        raise
-    except Exception as e:
-        error_msg = f"分析結果取得エラー: {str(e)}"
-        print(error_msg)
-        raise HTTPException(status_code=500, detail=error_msg)
-
-# ===== スタッフの全分析結果取得 =====
-@app.get("/results/{staff_id}")
-def get_staff_results(staff_id: str):
-    if supabase_error:
-        raise HTTPException(status_code=500, detail=f"Supabase接続エラー: {supabase_error}")
-    
-    try:
-        # Supabaseからスタッフの全分析結果を取得
-        try:
-            response = supabase.table("assessments").select("*").eq("staff_id", staff_id).execute()
-            return response.data
-        except Exception as e:
-            print(f"結果一覧取得エラー: {e}")
-            return []
-    except Exception as e:
-        error_msg = f"結果一覧取得エラー: {str(e)}"
-        print(error_msg)
-        raise HTTPException(status_code=500, detail=error_msg)
-
 # ===== MIMEタイプ修正 =====
 @app.post("/fix-mime-type/{staff_id}/{filename}")
 async def fix_mime_type(staff_id: str, filename: str):
