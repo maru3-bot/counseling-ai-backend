@@ -140,6 +140,7 @@ function App() {
       {error && <div className="error-banner">{error}</div>}
       
       <div className="container">
+        {/* 左側: 動画リスト */}
         <div className="video-list">
           <div className="section-header">
             <h2>動画一覧</h2>
@@ -159,14 +160,27 @@ function App() {
                   <div className="video-item">
                     <span className="video-name">{video.name}</span>
                     <div className="video-actions">
+                      {/* 各動画の操作ボタン */}
                       <button 
                         className="btn btn-play" 
                         onClick={(e) => {
                           e.stopPropagation();
                           playVideo(video);
                         }}
+                        title="動画を再生"
                       >
                         再生
+                      </button>
+                      <button
+                        className="btn btn-analyze"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleVideoSelect(video);
+                          analyzeVideo(video);
+                        }}
+                        title="AIで分析する"
+                      >
+                        分析
                       </button>
                       <button 
                         className="btn btn-delete" 
@@ -174,6 +188,7 @@ function App() {
                           e.stopPropagation();
                           deleteVideo(video);
                         }}
+                        title="動画を削除"
                       >
                         削除
                       </button>
@@ -185,6 +200,7 @@ function App() {
           )}
         </div>
         
+        {/* 右側: 選択した動画の詳細と分析結果 */}
         {selectedVideo ? (
           <div className="video-details">
             <div className="section-header">
@@ -192,6 +208,7 @@ function App() {
             </div>
             
             <div className="actions">
+              {/* 詳細画面のメイン操作ボタン */}
               <button className="btn btn-primary" onClick={() => playVideo(selectedVideo)}>
                 動画を再生
               </button>
@@ -204,6 +221,7 @@ function App() {
               </button>
             </div>
             
+            {/* 分析結果表示 */}
             {analysis && (
               <div className="analysis-card">
                 <h3>分析結果</h3>
