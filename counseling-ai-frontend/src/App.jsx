@@ -17,6 +17,11 @@ function App() {
   const [analysis, setAnalysis] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  
+  // 新しい状態変数を追加
+  const [analysisProgress, setAnalysisProgress] = useState(0); // 分析の進捗率（0-100）
+  const [analysisMessage, setAnalysisMessage] = useState(''); // 分析のステータスメッセージ
+  
   const fileInputRef = useRef(null);
   const videoPlayerRef = useRef(null);
 
@@ -143,27 +148,106 @@ function App() {
     }
   };
 
-  // 分析を実行
+  // 分析を実行（非同期タスク対応版）
   const analyzeVideo = async (video) => {
     if (!video) return;
     
     setAnalyzing(true);
     setError(null);
+    setAnalysisProgress(0);
+    setAnalysisMessage('分析を開始しています...');
     
     try {
       const response = await fetch(`${BASE_URL}/analyze/staffA/${video.name}`, {
         method: 'POST',
       });
       
-      if (!response.ok) throw new Error('分析に失敗しました');
-      
       const data = await response.json();
-      setAnalysis(data);
+      
+      if (response.ok && !data.status) {
+        // 既存の分析結果がある場合（すぐに結果が返ってきた）
+        setAnalysis(data);
+        setAnalyzing(false);
+        setAnalysisProgress(100);
+      } else if (data.status === "processing") {
+        // 処理中の場合はポーリングを開始
+        setAnalysisMessage('分析タスクを開始しました。進捗状況を確認しています...');
+        pollAnalysisStatus(video.name);
+      } else {
+        throw new Error(data.message || '分析の開始に失敗しました');
+      }
     } catch (err) {
       console.error('分析実行エラー:', err);
       setError('分析中にエラーが発生しました: ' + err.message);
-    } finally {
       setAnalyzing(false);
+    }
+  };
+  
+  // 分析状態のポーリング
+  const pollAnalysisStatus = async (filename) => {
+    let completed = false;
+    let attemptCount = 0;
+    const maxAttempts = 1800; // 30分（30分×60秒）のタイムアウト
+    
+    while (!completed && attemptCount < maxAttempts) {
+      try {
+        // タスク状態を確認
+        const taskResponse = await fetch(`${BASE_URL}/task-status/staffA/${filename}`);
+        
+        if (taskResponse.ok) {
+          const taskData = await taskResponse.json();
+          
+          // 進捗状況を更新
+          const progress = Math.round(taskData.progress * 100);
+          setAnalysisProgress(progress);
+          setAnalysisMessage(taskData.message || `処理中... ${progress}%`);
+          
+          if (taskData.status === "completed") {
+            // 完了したら分析結果を取得
+            const analysisResponse = await fetch(`${BASE_URL}/analysis/staffA/${filename}`);
+            if (analysisResponse.ok) {
+              const analysisData = await analysisResponse.json();
+              setAnalysis(analysisData);
+              completed = true;
+              setAnalysisMessage('分析が完了しました');
+            }
+          } else if (taskData.status === "error") {
+            setError(`分析エラー: ${taskData.error || '不明なエラー'}`);
+            completed = true;
+          }
+        } else if (taskResponse.status === 404) {
+          // タスクが見つからない場合は分析結果を直接確認
+          try {
+            const analysisResponse = await fetch(`${BASE_URL}/analysis/staffA/${filename}`);
+            if (analysisResponse.ok) {
+              const analysisData = await analysisResponse.json();
+              setAnalysis(analysisData);
+              completed = true;
+              setAnalysisMessage('分析が完了しました');
+            } else {
+              // 結果がまだない場合は待機
+              setAnalysisMessage('処理状態を確認中...');
+              attemptCount++;
+            }
+          } catch (e) {
+            attemptCount++;
+          }
+        }
+      } catch (err) {
+        console.error('ステータス確認エラー:', err);
+        attemptCount++;
+      }
+      
+      if (!completed) {
+        // 2秒待機
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+    }
+    
+    setAnalyzing(false);
+    
+    if (!completed) {
+      setError('分析がタイムアウトしました。後ほど結果を確認してください。');
     }
   };
 
@@ -222,9 +306,9 @@ function App() {
     if (!file) return;
     
     // ファイルサイズチェック（50MBまで）
-    const maxSize = 50 * 1024 * 1024; // 50MB
+    const maxSize = 1024 * 1024 * 1024; // 1GB
     if (file.size > maxSize) {
-      setError(`ファイルサイズが大きすぎます（最大50MB）: ${(file.size / (1024 * 1024)).toFixed(1)}MB`);
+      setError(`ファイルサイズが大きすぎます（最大1GB）: ${(file.size / (1024 * 1024)).toFixed(1)}MB`);
       return;
     }
     
@@ -428,7 +512,7 @@ function App() {
               >
                 {analyzing ? '分析中...' : '新規分析'}
               </button>
-              {/* 保存済み分析結果呼び出しボタン（新規追加） */}
+              {/* 保存済み分析結果呼び出しボタン */}
               <button 
                 className="btn btn-secondary"
                 onClick={() => fetchSavedAnalysis(selectedVideo)}
@@ -437,6 +521,20 @@ function App() {
                 保存済み分析を表示
               </button>
             </div>
+            
+            {/* 分析進捗表示 - 新しく追加 */}
+            {analyzing && (
+              <div className="analysis-progress-container">
+                <div className="analysis-message">{analysisMessage}</div>
+                <div className="progress-bar analysis-progress">
+                  <div 
+                    className="progress-fill" 
+                    style={{ width: `${analysisProgress}%` }}
+                  ></div>
+                </div>
+                <div className="progress-percentage">{analysisProgress}%</div>
+              </div>
+            )}
             
             {/* 分析結果表示 */}
             {analysis && (

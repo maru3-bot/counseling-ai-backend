@@ -415,3 +415,30 @@ li.selected .video-item {
   font-size: 1.1rem;
   color: var(--primary-color);
 }
+
+/* 分析進捗表示 */
+.analysis-progress-container {
+  margin: 1rem 0;
+  padding: 1rem;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius);
+  background-color: var(--gray-100);
+}
+
+.analysis-message {
+  margin-bottom: 0.5rem;
+  color: var(--gray-700);
+  font-size: 0.9rem;
+}
+
+.analysis-progress {
+  height: 10px;
+  margin-bottom: 0.5rem;
+}
+
+.progress-percentage {
+  font-size: 0.8rem;
+  color: var(--primary-color);
+  font-weight: 500;
+  text-align: right;
+}
