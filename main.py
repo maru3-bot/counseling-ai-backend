@@ -3,7 +3,6 @@ import json
 import tempfile
 import subprocess
 import shutil
-import math
 import asyncio
 import requests
 import time
@@ -18,7 +17,7 @@ from app_prompt_loader import PromptManager
 from datetime import datetime
 from pydantic import BaseModel
 
-# imageio-ffmpeg が無くても動くようにフォールバック
+# imageio-ffmpeg（任意）。無ければ PATH 上の ffmpeg を使用
 try:
     from imageio_ffmpeg import get_ffmpeg_exe  # optional
 except Exception:
@@ -41,28 +40,27 @@ SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 SUPABASE_BUCKET = os.getenv("SUPABASE_BUCKET", "videos")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-# モデルは環境変数で切り替え可能に
+# モデルは環境変数で切替可能
 OPENAI_TRANSCRIBE_MODEL = os.getenv("OPENAI_TRANSCRIBE_MODEL", "whisper-1")
 OPENAI_CHAT_MODEL = os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini")  # 多くの環境で利用可・安価
 
-# JSONフォーマット強制ガード（response_format=json_object利用時の必須要件）
+# JSON返却を強制するガード（response_format=json_object を使う場合に必要）
 JSON_RESPONSE_SYSTEM_GUARD = (
     "You must reply ONLY with a valid JSON object (json). "
     "Do not include code fences, explanations, or any extra text. Output must be valid UTF-8 JSON."
 )
 
-# フロントエンドのURL（クラウド環境で設定）
+# フロントエンドURL
 FRONTEND_URL = os.getenv("FRONTEND_URL", "https://counseling-ai-frontend.onrender.com")
-# デバッグモード
 DEBUG = os.getenv("DEBUG", "False").lower() in ("true", "1", "t")
 
-# プロンプトパスの設定
+# プロンプトパス
 ANALYZE_PROMPT_PATH = os.getenv("ANALYZE_PROMPT_PATH", "prompts/analyze_system_prompt.md")
 MERGE_PROMPT_PATH = os.getenv("MERGE_PROMPT_PATH", "prompts/merge_system_prompt.md")
 COMPANY_VALUES_PATH = os.getenv("COMPANY_VALUES_PATH", "prompts/company_values.md")
 EDUCATION_PLAN_PATH = os.getenv("EDUCATION_PLAN_PATH", "prompts/education_plan.md")
 
-# プロンプトマネージャーを初期化
+# プロンプトマネージャー
 prompt_manager = PromptManager(
     analyze_prompt_path=ANALYZE_PROMPT_PATH,
     merge_prompt_path=MERGE_PROMPT_PATH,
@@ -70,7 +68,7 @@ prompt_manager = PromptManager(
     education_plan_path=EDUCATION_PLAN_PATH
 )
 
-# 処理中のタスク状態を保持
+# タスク状態
 processing_tasks: Dict[str, "TaskStatus"] = {}
 
 class TaskStatus(BaseModel):
@@ -85,7 +83,6 @@ class TaskStatus(BaseModel):
 
 # ===== FFmpeg ユーティリティ =====
 def ffmpeg_path() -> str:
-    """実行可能な ffmpeg のパスを返す。imageio-ffmpeg があればそれ、無ければ 'ffmpeg' を返す。"""
     if get_ffmpeg_exe:
         try:
             return get_ffmpeg_exe()
@@ -108,28 +105,27 @@ def get_ffprobe_version() -> str:
         return f"NOT FOUND: {e}"
 
 # ===== Supabase 接続 =====
-supabase = None
+supabase: Optional[Client] = None
 supabase_error = None
 try:
     if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
         raise ValueError("Supabase URL または SERVICE_ROLE_KEY が設定されていません")
-    supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
     logger.info("Supabase接続成功")
 except Exception as e:
     supabase_error = str(e)
     logger.exception(f"Supabase接続エラー: {e}")
 
-# ===== FastAPI アプリ設定 =====
+# ===== FastAPI アプリ =====
 app = FastAPI()
 
-# 起動時ログ
 @app.on_event("startup")
 def startup_check():
     logger.info(f"[startup] FFmpeg:  {get_ffmpeg_version()}")
     logger.info(f"[startup] FFprobe: {get_ffprobe_version()}")
     logger.info(f"[startup] OPENAI_KEY_SET={bool(OPENAI_API_KEY)} TRANSCRIBE_MODEL={OPENAI_TRANSCRIBE_MODEL} CHAT_MODEL={OPENAI_CHAT_MODEL}")
 
-# HTTPアクセスログ
+# アクセスログ
 @app.middleware("http")
 async def access_log_middleware(request: Request, call_next):
     start = time.time()
@@ -142,11 +138,10 @@ async def access_log_middleware(request: Request, call_next):
         status = response.status_code if response else 500
         logger.info(f"{request.method} {request.url.path} -> {status} ({duration_ms:.1f} ms)")
 
-# CORSの設定
+# CORS
 allowed_origins = [FRONTEND_URL]
 if DEBUG:
-    allowed_origins.append("*")
-    logger.debug("デバッグモード: CORS制限なし")
+    allowed_origins.append("*"); logger.debug("デバッグモード: CORS制限なし")
 else:
     logger.info(f"本番モード: CORS許可オリジン = {allowed_origins}")
 
@@ -158,7 +153,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ===== 動作確認・デバッグエンドポイント =====
+# ===== デバッグエンドポイント =====
 @app.get("/")
 def root():
     return {
@@ -181,7 +176,6 @@ def debug_ffmpeg():
 
 @app.get("/debug/openai")
 def debug_openai():
-    """OpenAI APIキー疎通チェック（軽量モデル）"""
     if not OPENAI_API_KEY:
         return {"ok": False, "error": "OPENAI_API_KEY not set"}
     try:
@@ -197,7 +191,7 @@ def debug_openai():
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
-# ===== ファイル一覧取得 =====
+# ===== ファイル一覧 =====
 @app.get("/list/{staff_id}")
 def list_files(staff_id: str):
     if supabase_error:
@@ -211,7 +205,7 @@ def list_files(staff_id: str):
         logger.exception("ファイル一覧取得エラー")
         raise HTTPException(status_code=500, detail=f"ファイル一覧取得エラー: {str(e)}")
 
-# ===== ファイルアップロード =====
+# ===== アップロード =====
 @app.post("/upload/{staff_id}")
 async def upload_file(staff_id: str, file: UploadFile = File(...)):
     if supabase_error:
@@ -236,7 +230,7 @@ async def upload_file(staff_id: str, file: UploadFile = File(...)):
         logger.exception("アップロードエラー")
         raise HTTPException(status_code=500, detail=f"アップロードエラー: {str(e)}")
 
-# ===== 署名付きURLの取得 =====
+# ===== 署名付きURL =====
 @app.get("/signed-url/{staff_id}/{filename}")
 def get_signed_url(staff_id: str, filename: str):
     if supabase_error:
@@ -258,7 +252,7 @@ def get_signed_url(staff_id: str, filename: str):
         logger.exception("署名付きURL取得エラー")
         raise HTTPException(status_code=500, detail=f"署名付きURL取得エラー: {str(e)}")
 
-# ===== ファイル削除 =====
+# ===== 削除 =====
 @app.delete("/delete/{staff_id}/{filename}")
 def delete_file(staff_id: str, filename: str):
     if supabase_error:
@@ -278,7 +272,7 @@ def delete_file(staff_id: str, filename: str):
         logger.exception("削除エラー")
         raise HTTPException(status_code=500, detail=f"削除エラー: {str(e)}")
 
-# ===== タスク状態の取得 =====
+# ===== タスク状態 =====
 @app.get("/task-status/{staff_id}/{filename}")
 def get_task_status(staff_id: str, filename: str):
     task_key = f"{staff_id}:{filename}"
@@ -287,11 +281,54 @@ def get_task_status(staff_id: str, filename: str):
     else:
         raise HTTPException(status_code=404, detail="タスクが見つかりません")
 
-# ===== 音声を時間ベースで複数チャンクに分割（ffprobe不要） =====
+# ===== 分析結果スキーマ補正ユーティリティ =====
+def _to_list(v):
+    return v if isinstance(v, list) else []
+
+def _to_num_0_5(v):
+    try:
+        x = float(v)
+    except Exception:
+        return 0.0
+    x = max(0.0, min(5.0, x))
+    return round(x, 1)
+
+def _to_str(v):
+    try:
+        return "" if v is None else str(v)
+    except Exception:
+        return ""
+
+def ensure_analysis_schema(ana: dict) -> dict:
+    """
+    フロントで安全に描画できる標準スキーマへ補正
+    """
+    if not isinstance(ana, dict):
+        ana = {}
+    strengths = _to_list(ana.get("strengths"))
+    improvements = _to_list(ana.get("improvements"))
+    risk_flags = _to_list(ana.get("risk_flags") or ana.get("risks") or ana.get("warnings"))
+    scores_in = ana.get("scores") if isinstance(ana.get("scores"), dict) else {}
+    scores = {
+        "empathy": _to_num_0_5(scores_in.get("empathy") or scores_in.get("empathy_score") or scores_in.get("共感力")),
+        "active_listening": _to_num_0_5(scores_in.get("active_listening") or scores_in.get("listening") or scores_in.get("傾聴力")),
+        "clarity": _to_num_0_5(scores_in.get("clarity") or scores_in.get("明確さ")),
+        "problem_solving": _to_num_0_5(scores_in.get("problem_solving") or scores_in.get("問題解決力")),
+    }
+    normalized = {
+        "summary": _to_str(ana.get("summary") or ana.get("要約")),
+        "strengths": strengths,
+        "improvements": improvements,
+        "risk_flags": risk_flags,
+        "scores": scores,
+        "overall_comment": _to_str(ana.get("overall_comment") or ana.get("総評")),
+    }
+    return normalized
+
+# ===== 音声を時間ベース分割（ffprobe不要） =====
 def split_audio(input_path: str, chunk_dir: str, segment_seconds: int = 600, target_kbps: int = 128) -> List[str]:
     """
-    ffmpeg の segment 機能で一定時間ごとに分割。
-    128kbps × 600秒 ≈ 9.6MB/チャンク → Whisperの25MB制限に余裕で収まる想定。
+    128kbps × 600秒 ≈ 9.6MB/チャンク → Whisperの25MB制限に収まる想定
     """
     os.makedirs(chunk_dir, exist_ok=True)
     output_pattern = os.path.join(chunk_dir, "chunk_%03d.mp3")
@@ -313,7 +350,7 @@ def split_audio(input_path: str, chunk_dir: str, segment_seconds: int = 600, tar
         raise Exception("音声分割の出力が見つかりませんでした")
     return files
 
-# ===== 複数のチャンクを文字起こし =====
+# ===== 複数チャンクを文字起こし =====
 async def transcribe_chunks(chunk_paths: List[str], openai_client, update_progress) -> str:
     total_chunks = len(chunk_paths)
     transcripts = []
@@ -329,7 +366,7 @@ async def transcribe_chunks(chunk_paths: List[str], openai_client, update_progre
         transcripts.append(response)
     return " ".join(transcripts)
 
-# ===== 大きなテキストを分割 =====
+# ===== 大きなテキストを分割（簡易） =====
 def split_text(text: str, max_tokens: int = 4000) -> List[str]:
     chars_per_token = 2.5
     max_chars = int(max_tokens * chars_per_token)
@@ -376,7 +413,7 @@ async def merge_analyses(analyses: List[Dict], merge_prompt: str, openai_client,
     merged_analysis = json.loads(merged_text)
     return merged_analysis
 
-# ===== 非同期で動画を分析 =====
+# ===== バックグラウンドで動画分析 =====
 async def analyze_video_task(staff_id: str, filename: str):
     task_key = f"{staff_id}:{filename}"
 
@@ -433,7 +470,10 @@ async def analyze_video_task(staff_id: str, filename: str):
             analyze_prompt = prompt_manager.get_analyze_prompt()
             merge_prompt = prompt_manager.get_merge_prompt()
             analyses = await analyze_text_chunks(text_chunks, analyze_prompt, client, update_progress)
+
             final_analysis = await merge_analyses(analyses, merge_prompt, client, update_progress)
+            # ここで標準スキーマへ補正（重要）
+            final_analysis = ensure_analysis_schema(final_analysis)
 
             update_progress("分析完了。結果を保存します...", 0.95)
             try:
@@ -470,7 +510,7 @@ async def analyze_video_task(staff_id: str, filename: str):
             processing_tasks[task_key].completed_at = datetime.now().isoformat()
             processing_tasks[task_key].message = "分析中にエラーが発生しました"
 
-# ===== 分析実行 =====
+# ===== 分析実行（force対応） =====
 @app.post("/analyze/{staff_id}/{filename}")
 async def analyze_file(staff_id: str, filename: str, force: bool = False, background_tasks: BackgroundTasks = ...):
     if supabase_error:
@@ -488,17 +528,17 @@ async def analyze_file(staff_id: str, filename: str, force: bool = False, backgr
                 return {"status": "processing", "message": f"分析実行中: {task.progress*100:.1f}%", "task_id": task_key}
             elif task.status == "completed" and not force:
                 try:
-                    response = supabase.table("assessments").select("*").eq("staff", staff_id).eq("filename", filename).execute()
-                    if response.data and len(response.data) > 0:
-                        return response.data[0]["analysis"]
+                    resp = supabase.table("assessments").select("*").eq("staff", staff_id).eq("filename", filename).execute()
+                    if resp.data and len(resp.data) > 0:
+                        return ensure_analysis_schema(resp.data[0]["analysis"])
                 except Exception as e:
                     logger.warning(f"分析結果取得エラー: {e}")
 
         if not force:
             try:
-                response = supabase.table("assessments").select("*").eq("staff", staff_id).eq("filename", filename).execute()
-                if response.data and len(response.data) > 0:
-                    return response.data[0]["analysis"]
+                resp = supabase.table("assessments").select("*").eq("staff", staff_id).eq("filename", filename).execute()
+                if resp.data and len(resp.data) > 0:
+                    return ensure_analysis_schema(resp.data[0]["analysis"])
             except Exception as e:
                 logger.warning(f"既存の分析結果取得エラー: {e}")
 
@@ -511,7 +551,6 @@ async def analyze_file(staff_id: str, filename: str, force: bool = False, backgr
             started_at=datetime.now().isoformat()
         )
 
-        # BackgroundTasks が None のケースは理論上無いが、保険で対応
         if background_tasks is None:
             logger.warning("BackgroundTasks が None のため asyncio.create_task で代替起動します")
             asyncio.create_task(analyze_video_task(staff_id, filename))
@@ -530,9 +569,9 @@ def get_analysis(staff_id: str, filename: str):
         raise HTTPException(status_code=500, detail=f"Supabase接続エラー: {supabase_error}")
     try:
         try:
-            response = supabase.table("assessments").select("*").eq("staff", staff_id).eq("filename", filename).execute()
-            if response.data and len(response.data) > 0:
-                return response.data[0]["analysis"]
+            resp = supabase.table("assessments").select("*").eq("staff", staff_id).eq("filename", filename).execute()
+            if resp.data and len(resp.data) > 0:
+                return ensure_analysis_schema(resp.data[0]["analysis"])
         except Exception as e:
             logger.warning(f"分析結果取得エラー: {e}")
 
@@ -547,7 +586,7 @@ def get_analysis(staff_id: str, filename: str):
         logger.exception("分析結果取得で予期しないエラー")
         raise HTTPException(status_code=500, detail=f"分析結果取得エラー: {str(e)}")
 
-# ===== スタッフの全分析結果取得 =====
+# ===== 結果一覧（任意） =====
 @app.get("/results/{staff_id}")
 def get_staff_results(staff_id: str):
     if supabase_error:
