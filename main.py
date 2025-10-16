@@ -45,6 +45,12 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_TRANSCRIBE_MODEL = os.getenv("OPENAI_TRANSCRIBE_MODEL", "whisper-1")
 OPENAI_CHAT_MODEL = os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini")  # 多くの環境で利用可・安価
 
+# JSONフォーマット強制ガード（response_format=json_object利用時の必須要件）
+JSON_RESPONSE_SYSTEM_GUARD = (
+    "You must reply ONLY with a valid JSON object (json). "
+    "Do not include code fences, explanations, or any extra text. Output must be valid UTF-8 JSON."
+)
+
 # フロントエンドのURL（クラウド環境で設定）
 FRONTEND_URL = os.getenv("FRONTEND_URL", "https://counseling-ai-frontend.onrender.com")
 # デバッグモード
@@ -339,6 +345,7 @@ async def analyze_text_chunks(text_chunks: List[str], system_prompt: str, openai
             model=OPENAI_CHAT_MODEL,
             messages=[
                 {"role": "system", "content": system_prompt},
+                {"role": "system", "content": JSON_RESPONSE_SYSTEM_GUARD},
                 {"role": "user", "content": chunk}
             ],
             response_format={"type": "json_object"},
@@ -359,6 +366,7 @@ async def merge_analyses(analyses: List[Dict], merge_prompt: str, openai_client,
         model=OPENAI_CHAT_MODEL,
         messages=[
             {"role": "system", "content": merge_prompt},
+            {"role": "system", "content": JSON_RESPONSE_SYSTEM_GUARD},
             {"role": "user", "content": analyses_json}
         ],
         response_format={"type": "json_object"},
