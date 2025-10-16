@@ -8,6 +8,7 @@ import asyncio
 import requests
 import time
 import logging
+import glob
 from logging.handlers import RotatingFileHandler
 from typing import List, Dict, Any, Optional
 from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Request
@@ -17,55 +18,19 @@ from app_prompt_loader import PromptManager
 from datetime import datetime
 from pydantic import BaseModel
 
-# === 追加1: FFmpeg バージョン取得ユーティリティ（from pydantic import BaseModel の直後） ===
-def get_ffmpeg_version():
-    """
-    ffmpeg のバージョン1行目を返す。未インストールなら NOT FOUND を返す。
-    例: 'ffmpeg version 5.1.6-...' / 'NOT FOUND: ...'
-    """
-    import subprocess
-    try:
-        out = subprocess.check_output(['ffmpeg', '-version'], stderr=subprocess.STDOUT, text=True)
-        return out.splitlines()[0]
-    except Exception as e:
-        return f"NOT FOUND: {e}"
+# imageio-ffmpeg が無くても動くようにフォールバック
+try:
+    from imageio_ffmpeg import get_ffmpeg_exe  # optional
+except Exception:
+    get_ffmpeg_exe = None
 
-def get_ffprobe_version():
-    """
-    ffprobe のバージョン1行目を返す。未インストールなら NOT FOUND を返す。
-    """
-    import subprocess
-    try:
-        out = subprocess.check_output(['ffprobe', '-version'], stderr=subprocess.STDOUT, text=True)
-        return out.splitlines()[0]
-    except Exception as e:
-        return f"NOT FOUND: {e}"
-
-# ===== ロギング設定（方法1） =====
-# ログディレクトリ作成
+# ===== ロギング設定 =====
 os.makedirs("logs", exist_ok=True)
-
 logger = logging.getLogger("counseling-ai-backend")
 logger.setLevel(logging.DEBUG)
-
-# フォーマッタ
-formatter = logging.Formatter(
-    "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
-)
-
-# コンソール出力
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.DEBUG)
-console_handler.setFormatter(formatter)
-
-# ローテーションするファイル出力（最大5MB×3世代）
-file_handler = RotatingFileHandler(
-    "logs/app.log", maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"
-)
-file_handler.setLevel(logging.DEBUG)
-file_handler.setFormatter(formatter)
-
-# ハンドラ重複防止
+formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s")
+console_handler = logging.StreamHandler(); console_handler.setLevel(logging.DEBUG); console_handler.setFormatter(formatter)
+file_handler = RotatingFileHandler("logs/app.log", maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"); file_handler.setLevel(logging.DEBUG); file_handler.setFormatter(formatter)
 if not logger.handlers:
     logger.addHandler(console_handler)
     logger.addHandler(file_handler)
@@ -75,6 +40,10 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 SUPABASE_BUCKET = os.getenv("SUPABASE_BUCKET", "videos")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
+# モデルは環境変数で切り替え可能に
+OPENAI_TRANSCRIBE_MODEL = os.getenv("OPENAI_TRANSCRIBE_MODEL", "whisper-1")
+OPENAI_CHAT_MODEL = os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini")  # 多くの環境で利用可・安価
 
 # フロントエンドのURL（クラウド環境で設定）
 FRONTEND_URL = os.getenv("FRONTEND_URL", "https://counseling-ai-frontend.onrender.com")
@@ -96,7 +65,7 @@ prompt_manager = PromptManager(
 )
 
 # 処理中のタスク状態を保持
-processing_tasks = {}
+processing_tasks: Dict[str, "TaskStatus"] = {}
 
 class TaskStatus(BaseModel):
     staff_id: str
@@ -108,14 +77,36 @@ class TaskStatus(BaseModel):
     completed_at: Optional[str] = None
     error: Optional[str] = None
 
+# ===== FFmpeg ユーティリティ =====
+def ffmpeg_path() -> str:
+    """実行可能な ffmpeg のパスを返す。imageio-ffmpeg があればそれ、無ければ 'ffmpeg' を返す。"""
+    if get_ffmpeg_exe:
+        try:
+            return get_ffmpeg_exe()
+        except Exception:
+            pass
+    return "ffmpeg"
+
+def get_ffmpeg_version() -> str:
+    try:
+        out = subprocess.check_output([ffmpeg_path(), "-version"], stderr=subprocess.STDOUT, text=True)
+        return out.splitlines()[0]
+    except Exception as e:
+        return f"NOT FOUND: {e}"
+
+def get_ffprobe_version() -> str:
+    try:
+        out = subprocess.check_output(["ffprobe", "-version"], stderr=subprocess.STDOUT, text=True)
+        return out.splitlines()[0]
+    except Exception as e:
+        return f"NOT FOUND: {e}"
+
 # ===== Supabase 接続 =====
 supabase = None
 supabase_error = None
-
 try:
     if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
         raise ValueError("Supabase URL または SERVICE_ROLE_KEY が設定されていません")
-    
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
     logger.info("Supabase接続成功")
 except Exception as e:
@@ -125,16 +116,14 @@ except Exception as e:
 # ===== FastAPI アプリ設定 =====
 app = FastAPI()
 
-# === 追加2: 起動時に FFmpeg/FFprobe の有無をログへ出す（app = FastAPI() の直後） ===
+# 起動時ログ
 @app.on_event("startup")
-def startup_check_ffmpeg():
-    ver_ffmpeg = get_ffmpeg_version()
-    ver_ffprobe = get_ffprobe_version()
-    # Render の「Logs」に出ます
-    print(f"[startup] FFmpeg:  {ver_ffmpeg}")
-    print(f"[startup] FFprobe: {ver_ffprobe}")
+def startup_check():
+    logger.info(f"[startup] FFmpeg:  {get_ffmpeg_version()}")
+    logger.info(f"[startup] FFprobe: {get_ffprobe_version()}")
+    logger.info(f"[startup] OPENAI_KEY_SET={bool(OPENAI_API_KEY)} TRANSCRIBE_MODEL={OPENAI_TRANSCRIBE_MODEL} CHAT_MODEL={OPENAI_CHAT_MODEL}")
 
-# HTTPアクセスログ（メソッド/パス/ステータス/所要時間）
+# HTTPアクセスログ
 @app.middleware("http")
 async def access_log_middleware(request: Request, call_next):
     start = time.time()
@@ -150,7 +139,7 @@ async def access_log_middleware(request: Request, call_next):
 # CORSの設定
 allowed_origins = [FRONTEND_URL]
 if DEBUG:
-    allowed_origins.append("*")  # デバッグ時は全て許可
+    allowed_origins.append("*")
     logger.debug("デバッグモード: CORS制限なし")
 else:
     logger.info(f"本番モード: CORS許可オリジン = {allowed_origins}")
@@ -163,11 +152,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ===== 動作確認用エンドポイント =====
+# ===== 動作確認・デバッグエンドポイント =====
 @app.get("/")
 def root():
     return {
-        "ok": True, 
+        "ok": True,
         "message": "Backend is running.",
         "env": {
             "supabase_url_set": bool(SUPABASE_URL),
@@ -180,19 +169,27 @@ def root():
         "supabase_status": "connected" if supabase else f"error: {supabase_error}"
     }
 
-# === 追加3: 確認用エンドポイント（/debug/ffmpeg）を root() の直後に追加 ===
 @app.get("/debug/ffmpeg")
 def debug_ffmpeg():
-    """
-    ブラウザ/HTTPで FFmpeg / FFprobe の状態を確認するための簡易エンドポイント。
-    例: https://<あなたのRenderドメイン>/debug/ffmpeg
-    """
-    ver_ffmpeg = get_ffmpeg_version()
-    ver_ffprobe = get_ffprobe_version()
-    return {
-        "ffmpeg": ver_ffmpeg,
-        "ffprobe": ver_ffprobe
-    }
+    return {"ffmpeg": get_ffmpeg_version(), "ffprobe": get_ffprobe_version()}
+
+@app.get("/debug/openai")
+def debug_openai():
+    """OpenAI APIキー疎通チェック（軽量モデル）"""
+    if not OPENAI_API_KEY:
+        return {"ok": False, "error": "OPENAI_API_KEY not set"}
+    try:
+        import openai
+        client = openai.OpenAI(api_key=OPENAI_API_KEY)
+        resp = client.chat.completions.create(
+            model=OPENAI_CHAT_MODEL,
+            messages=[{"role": "user", "content": "ping"}],
+            max_tokens=5,
+            temperature=0
+        )
+        return {"ok": True, "model": OPENAI_CHAT_MODEL, "id": resp.id}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 # ===== ファイル一覧取得 =====
 @app.get("/list/{staff_id}")
@@ -222,10 +219,7 @@ async def upload_file(staff_id: str, file: UploadFile = File(...)):
                 content_type = "video/mp4" if filename.lower().endswith('.mp4') else "video/quicktime"
         file_path = f"{staff_id}/{filename}"
         logger.info(f"アップロード: {file_path}, サイズ: {len(contents)} bytes, タイプ: {content_type}")
-        file_options = {
-            "content-type": content_type,
-            "cache-control": "3600"
-        }
+        file_options = {"content-type": content_type, "cache-control": "3600"}
         try:
             supabase.storage.from_(SUPABASE_BUCKET).remove([file_path])
         except Exception:
@@ -250,13 +244,9 @@ def get_signed_url(staff_id: str, filename: str):
             raise HTTPException(status_code=404, detail=f"ファイル {filename} が見つかりません")
         try:
             transform = {"format": "mp4"}
-            signed_url = supabase.storage.from_(SUPABASE_BUCKET).create_signed_url(
-                file_path, 3600, transform=transform
-            )
+            signed_url = supabase.storage.from_(SUPABASE_BUCKET).create_signed_url(file_path, 3600, transform=transform)
         except Exception:
-            signed_url = supabase.storage.from_(SUPABASE_BUCKET).create_signed_url(
-                file_path, 3600
-            )
+            signed_url = supabase.storage.from_(SUPABASE_BUCKET).create_signed_url(file_path, 3600)
         return {"url": signed_url["signedURL"]}
     except Exception as e:
         logger.exception("署名付きURL取得エラー")
@@ -291,30 +281,31 @@ def get_task_status(staff_id: str, filename: str):
     else:
         raise HTTPException(status_code=404, detail="タスクが見つかりません")
 
-# ===== 音声を複数のチャンクに分割する関数 =====
-def split_audio(input_path: str, chunk_dir: str, max_size_mb: int = 24) -> List[str]:
-    file_size_mb = os.path.getsize(input_path) / (1024 * 1024)
-    if file_size_mb <= max_size_mb:
-        output_path = os.path.join(chunk_dir, "chunk_0.mp3")
-        shutil.copy(input_path, output_path)
-        return [output_path]
-    command = f'ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "{input_path}"'
-    result = subprocess.run(command, shell=True, capture_output=True, text=True)
+# ===== 音声を時間ベースで複数チャンクに分割（ffprobe不要） =====
+def split_audio(input_path: str, chunk_dir: str, segment_seconds: int = 600, target_kbps: int = 128) -> List[str]:
+    """
+    ffmpeg の segment 機能で一定時間ごとに分割。
+    128kbps × 600秒 ≈ 9.6MB/チャンク → Whisperの25MB制限に余裕で収まる想定。
+    """
+    os.makedirs(chunk_dir, exist_ok=True)
+    output_pattern = os.path.join(chunk_dir, "chunk_%03d.mp3")
+    cmd = [
+        ffmpeg_path(), "-y",
+        "-i", input_path,
+        "-vn",
+        "-acodec", "libmp3lame",
+        "-b:a", f"{target_kbps}k",
+        "-f", "segment",
+        "-segment_time", str(segment_seconds),
+        output_pattern,
+    ]
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if result.returncode != 0:
-        raise Exception(f"動画長さの取得に失敗しました: {result.stderr}")
-    total_duration = float(result.stdout.strip())
-    chunks_count = math.ceil(file_size_mb / max_size_mb)
-    chunk_duration = total_duration / chunks_count
-    chunk_paths = []
-    for i in range(chunks_count):
-        start_time = i * chunk_duration
-        output_path = os.path.join(chunk_dir, f"chunk_{i}.mp3")
-        command = f'ffmpeg -y -i "{input_path}" -ss {start_time} -t {chunk_duration} -c:a libmp3lame -q:a 2 "{output_path}"'
-        result = subprocess.run(command, shell=True, capture_output=True)
-        if result.returncode != 0:
-            raise Exception(f"音声チャンク{i}の作成に失敗しました")
-        chunk_paths.append(output_path)
-    return chunk_paths
+        raise Exception(f"音声分割に失敗しました: {result.stderr.decode(errors='ignore')}")
+    files = sorted(glob.glob(os.path.join(chunk_dir, "chunk_*.mp3")))
+    if not files:
+        raise Exception("音声分割の出力が見つかりませんでした")
+    return files
 
 # ===== 複数のチャンクを文字起こし =====
 async def transcribe_chunks(chunk_paths: List[str], openai_client, update_progress) -> str:
@@ -324,7 +315,7 @@ async def transcribe_chunks(chunk_paths: List[str], openai_client, update_progre
         update_progress(f"チャンク {i+1}/{total_chunks} を文字起こし中...", (i / total_chunks) * 0.5)
         with open(chunk_path, "rb") as audio_file:
             response = openai_client.audio.transcriptions.create(
-                model="whisper-1",
+                model=OPENAI_TRANSCRIBE_MODEL,
                 file=audio_file,
                 language="ja",
                 response_format="text"
@@ -345,7 +336,7 @@ async def analyze_text_chunks(text_chunks: List[str], system_prompt: str, openai
     for i, chunk in enumerate(text_chunks):
         update_progress(f"テキストチャンク {i+1}/{total_chunks} を分析中...", 0.5 + (i / total_chunks) * 0.4)
         completion = openai_client.chat.completions.create(
-            model="gpt-4-turbo",
+            model=OPENAI_CHAT_MODEL,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": chunk}
@@ -365,7 +356,7 @@ async def merge_analyses(analyses: List[Dict], merge_prompt: str, openai_client,
     update_progress("複数の分析結果をマージ中...", 0.9)
     analyses_json = json.dumps(analyses, ensure_ascii=False)
     completion = openai_client.chat.completions.create(
-        model="gpt-4-turbo",
+        model=OPENAI_CHAT_MODEL,
         messages=[
             {"role": "system", "content": merge_prompt},
             {"role": "user", "content": analyses_json}
@@ -380,18 +371,22 @@ async def merge_analyses(analyses: List[Dict], merge_prompt: str, openai_client,
 # ===== 非同期で動画を分析 =====
 async def analyze_video_task(staff_id: str, filename: str):
     task_key = f"{staff_id}:{filename}"
+
     def update_progress(message, progress):
         if task_key in processing_tasks:
             processing_tasks[task_key].message = message
             processing_tasks[task_key].progress = progress
             logger.info(f"進捗更新: {message} ({progress*100:.1f}%)")
+
     try:
         import openai
-        file_path = f"{staff_id}/{filename}"
+        file_path_store = f"{staff_id}/{filename}"
         client = openai.OpenAI(api_key=OPENAI_API_KEY)
+
         update_progress("動画のダウンロードを開始します...", 0.01)
-        signed_url = supabase.storage.from_(SUPABASE_BUCKET).create_signed_url(file_path, 3600)
+        signed_url = supabase.storage.from_(SUPABASE_BUCKET).create_signed_url(file_path_store, 3600)
         video_url = signed_url["signedURL"]
+
         with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as video_file:
             video_path = video_file.name
             response = requests.get(video_url, stream=True)
@@ -408,67 +403,76 @@ async def analyze_video_task(staff_id: str, filename: str):
                             f"動画をダウンロード中... {downloaded/(1024*1024):.1f}MB/{total_size/(1024*1024):.1f}MB",
                             0.01 + (downloaded/total_size) * 0.09
                         )
+
         update_progress("音声抽出を開始します...", 0.1)
         with tempfile.TemporaryDirectory() as temp_dir:
             audio_path = os.path.join(temp_dir, "audio.mp3")
-            command = f'ffmpeg -i "{video_path}" -q:a 3 -map a "{audio_path}" -y'
-            process = subprocess.run(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            if process.returncode != 0:
-                stderr = process.stderr.decode()
-                raise Exception(f"音声の抽出に失敗しました: {stderr}")
+            cmd_extract = [ffmpeg_path(), "-i", video_path, "-vn", "-acodec", "libmp3lame", "-q:a", "3", "-map", "a", audio_path, "-y"]
+            proc = subprocess.run(cmd_extract, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            if proc.returncode != 0:
+                raise Exception(f"音声の抽出に失敗しました: {proc.stderr.decode(errors='ignore')}")
+
             update_progress("音声を分割しています...", 0.2)
             chunks_dir = os.path.join(temp_dir, "chunks")
             os.makedirs(chunks_dir, exist_ok=True)
-            audio_chunks = split_audio(audio_path, chunks_dir)
+            audio_chunks = split_audio(audio_path, chunks_dir)  # 10分/128kbps
+
             update_progress(f"文字起こしを開始します... ({len(audio_chunks)}チャンク)", 0.3)
             transcript = await transcribe_chunks(audio_chunks, client, update_progress)
+
             update_progress("文字起こし完了。分析を開始します...", 0.5)
             text_chunks = split_text(transcript)
             analyze_prompt = prompt_manager.get_analyze_prompt()
             merge_prompt = prompt_manager.get_merge_prompt()
             analyses = await analyze_text_chunks(text_chunks, analyze_prompt, client, update_progress)
             final_analysis = await merge_analyses(analyses, merge_prompt, client, update_progress)
+
             update_progress("分析完了。結果を保存します...", 0.95)
             try:
                 data = {
                     "staff": staff_id,
                     "filename": filename,
                     "transcript": transcript[:10000] + ("..." if len(transcript) > 10000 else ""),
-                    "model_mode": "gpt-4-turbo",
-                    "model_name": "GPT-4 Turbo",
+                    "model_mode": OPENAI_CHAT_MODEL,
+                    "model_name": OPENAI_CHAT_MODEL,
                     "analysis": final_analysis,
                     "created_at": datetime.now().isoformat()
                 }
                 supabase.table("assessments").delete().eq("staff", staff_id).eq("filename", filename).execute()
                 supabase.table("assessments").insert(data).execute()
-            except Exception as e:
+            except Exception:
                 logger.exception("分析結果保存エラー")
+
         try:
             os.unlink(video_path)
         except Exception as e:
             logger.warning(f"一時ファイル削除エラー: {e}")
+
         if task_key in processing_tasks:
             processing_tasks[task_key].status = "completed"
             processing_tasks[task_key].progress = 1.0
             processing_tasks[task_key].completed_at = datetime.now().isoformat()
             processing_tasks[task_key].message = "分析が完了しました"
+
     except Exception as e:
-        error_msg = f"分析エラー: {str(e)}"
-        logger.exception(error_msg)
+        logger.exception(f"分析エラー: {e}")
         if task_key in processing_tasks:
             processing_tasks[task_key].status = "error"
-            processing_tasks[task_key].error = error_msg
+            processing_tasks[task_key].error = str(e)
             processing_tasks[task_key].completed_at = datetime.now().isoformat()
             processing_tasks[task_key].message = "分析中にエラーが発生しました"
 
 # ===== 分析実行 =====
 @app.post("/analyze/{staff_id}/{filename}")
-async def analyze_file(staff_id: str, filename: str, force: bool = False, background_tasks: BackgroundTasks = None):
+async def analyze_file(staff_id: str, filename: str, force: bool = False, background_tasks: BackgroundTasks = ...):
     if supabase_error:
         raise HTTPException(status_code=500, detail=f"Supabase接続エラー: {supabase_error}")
     if not OPENAI_API_KEY:
-        raise HTTPException(status_code=500, detail="OpenAI API Keyが設定されていません")
+        raise HTTPException(status_code=500, detail="OpenAI API Keyが設定されていません（OPENAI_API_KEY）")
+
     task_key = f"{staff_id}:{filename}"
+    logger.info(f"analyze_file start staff={staff_id} file={filename} force={force}")
+
     try:
         if task_key in processing_tasks:
             task = processing_tasks[task_key]
@@ -481,6 +485,7 @@ async def analyze_file(staff_id: str, filename: str, force: bool = False, backgr
                         return response.data[0]["analysis"]
                 except Exception as e:
                     logger.warning(f"分析結果取得エラー: {e}")
+
         if not force:
             try:
                 response = supabase.table("assessments").select("*").eq("staff", staff_id).eq("filename", filename).execute()
@@ -488,6 +493,7 @@ async def analyze_file(staff_id: str, filename: str, force: bool = False, backgr
                     return response.data[0]["analysis"]
             except Exception as e:
                 logger.warning(f"既存の分析結果取得エラー: {e}")
+
         processing_tasks[task_key] = TaskStatus(
             staff_id=staff_id,
             filename=filename,
@@ -496,7 +502,14 @@ async def analyze_file(staff_id: str, filename: str, force: bool = False, backgr
             message="分析を開始しています...",
             started_at=datetime.now().isoformat()
         )
-        background_tasks.add_task(analyze_video_task, staff_id, filename)
+
+        # BackgroundTasks が None のケースは理論上無いが、保険で対応
+        if background_tasks is None:
+            logger.warning("BackgroundTasks が None のため asyncio.create_task で代替起動します")
+            asyncio.create_task(analyze_video_task(staff_id, filename))
+        else:
+            background_tasks.add_task(analyze_video_task, staff_id, filename)
+
         return {"status": "processing", "message": "分析を開始しました。タスクステータスを確認してください。", "task_id": task_key}
     except Exception as e:
         logger.exception("分析開始エラー")
@@ -514,12 +527,11 @@ def get_analysis(staff_id: str, filename: str):
                 return response.data[0]["analysis"]
         except Exception as e:
             logger.warning(f"分析結果取得エラー: {e}")
+
         task_key = f"{staff_id}:{filename}"
         if task_key in processing_tasks and processing_tasks[task_key].status == "processing":
-            raise HTTPException(
-                status_code=202,
-                detail={"message": "分析処理中です", "progress": processing_tasks[task_key].progress, "status": "processing"}
-            )
+            raise HTTPException(status_code=202, detail={"message": "分析処理中です", "progress": processing_tasks[task_key].progress, "status": "processing"})
+
         raise HTTPException(status_code=404, detail=f"{filename}の分析結果が見つかりません")
     except HTTPException:
         raise
