@@ -17,6 +17,30 @@ from app_prompt_loader import PromptManager
 from datetime import datetime
 from pydantic import BaseModel
 
+# === 追加1: FFmpeg バージョン取得ユーティリティ（from pydantic import BaseModel の直後） ===
+def get_ffmpeg_version():
+    """
+    ffmpeg のバージョン1行目を返す。未インストールなら NOT FOUND を返す。
+    例: 'ffmpeg version 5.1.6-...' / 'NOT FOUND: ...'
+    """
+    import subprocess
+    try:
+        out = subprocess.check_output(['ffmpeg', '-version'], stderr=subprocess.STDOUT, text=True)
+        return out.splitlines()[0]
+    except Exception as e:
+        return f"NOT FOUND: {e}"
+
+def get_ffprobe_version():
+    """
+    ffprobe のバージョン1行目を返す。未インストールなら NOT FOUND を返す。
+    """
+    import subprocess
+    try:
+        out = subprocess.check_output(['ffprobe', '-version'], stderr=subprocess.STDOUT, text=True)
+        return out.splitlines()[0]
+    except Exception as e:
+        return f"NOT FOUND: {e}"
+
 # ===== ロギング設定（方法1） =====
 # ログディレクトリ作成
 os.makedirs("logs", exist_ok=True)
@@ -101,6 +125,15 @@ except Exception as e:
 # ===== FastAPI アプリ設定 =====
 app = FastAPI()
 
+# === 追加2: 起動時に FFmpeg/FFprobe の有無をログへ出す（app = FastAPI() の直後） ===
+@app.on_event("startup")
+def startup_check_ffmpeg():
+    ver_ffmpeg = get_ffmpeg_version()
+    ver_ffprobe = get_ffprobe_version()
+    # Render の「Logs」に出ます
+    print(f"[startup] FFmpeg:  {ver_ffmpeg}")
+    print(f"[startup] FFprobe: {ver_ffprobe}")
+
 # HTTPアクセスログ（メソッド/パス/ステータス/所要時間）
 @app.middleware("http")
 async def access_log_middleware(request: Request, call_next):
@@ -145,6 +178,20 @@ def root():
             "allowed_origins": allowed_origins
         },
         "supabase_status": "connected" if supabase else f"error: {supabase_error}"
+    }
+
+# === 追加3: 確認用エンドポイント（/debug/ffmpeg）を root() の直後に追加 ===
+@app.get("/debug/ffmpeg")
+def debug_ffmpeg():
+    """
+    ブラウザ/HTTPで FFmpeg / FFprobe の状態を確認するための簡易エンドポイント。
+    例: https://<あなたのRenderドメイン>/debug/ffmpeg
+    """
+    ver_ffmpeg = get_ffmpeg_version()
+    ver_ffprobe = get_ffprobe_version()
+    return {
+        "ffmpeg": ver_ffmpeg,
+        "ffprobe": ver_ffprobe
     }
 
 # ===== ファイル一覧取得 =====
